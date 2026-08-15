@@ -2,6 +2,7 @@ package com.verbalogix.assistant.data
 
 import androidx.room.ColumnInfo
 import androidx.room.Dao
+import androidx.room.Delete
 import androidx.room.Entity
 import androidx.room.Insert
 import androidx.room.PrimaryKey
@@ -102,6 +103,9 @@ interface ProviderDao {
 
     @Update
     suspend fun update(provider: Provider)
+
+    @Delete
+    suspend fun delete(provider: Provider)
 
     /** Exactly one active at a time; the two statements run under one transaction. */
     @Query("UPDATE providers SET isActive = 0")

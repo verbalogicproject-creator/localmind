@@ -448,9 +448,9 @@ private fun Composer(sending: Boolean, onSend: (String) -> Unit) {
 
 // Sample content lives here and nowhere else.
 private val previewProviders = listOf(
-    Provider(1, "LFM2.5 8B", "http://127.0.0.1:8080", isActive = true),
-    Provider(2, "Qwen3.5 4B", "http://127.0.0.1:8081"),
-    Provider(3, "LFM2.5 8B \u21c4", "http://127.0.0.1:8090", model = "lfm-8b"),
+    Provider(1, "LFM2.5 8B", "http://127.0.0.1:8090", model = "lfm-8b", isActive = true),
+    Provider(2, "Qwen3.5 4B", "http://127.0.0.1:8090", model = "qwen-4b"),
+    Provider(3, "Bonsai 8B \u00b7 1-bit", "http://127.0.0.1:8090", model = "bonsai-8b"),
 )
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)

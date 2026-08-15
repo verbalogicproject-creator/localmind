@@ -68,10 +68,30 @@ class ProviderRepository @Inject constructor(
      * exactly.
      */
     private val defaults = listOf(
-        Provider(name = "LFM2.5 8B", baseUrl = "http://127.0.0.1:8080", isActive = true),
-        Provider(name = "Qwen3.5 4B", baseUrl = "http://127.0.0.1:8081"),
-        Provider(name = "LFM2.5 8B \u21c4", baseUrl = SWAP_URL, model = "lfm-8b"),
-        Provider(name = "Qwen3.5 4B \u21c4", baseUrl = SWAP_URL, model = "qwen-4b"),
+        Provider(name = "LFM2.5 8B", baseUrl = SWAP_URL, model = "lfm-8b", isActive = true),
+        Provider(name = "Qwen3.5 4B", baseUrl = SWAP_URL, model = "qwen-4b"),
+        Provider(name = "Bonsai 8B \u00b7 1-bit", baseUrl = SWAP_URL, model = "bonsai-8b"),
+    )
+
+    /**
+     * Seeded once, now withdrawn: the two direct ports.
+     *
+     * They listed the same two models the swap endpoint already serves, so the picker
+     * showed four entries for two models and the duplicates differed only by a port
+     * number the user should not have to reason about. The swap entries are strictly
+     * better -- they start the server themselves.
+     *
+     * The DIRECT CODE PATH IS UNCHANGED and stays the baseline: an empty `model` still
+     * means no model field and /props for status, and re-adding a direct provider is
+     * one line here. What is withdrawn is the default UI entry, not the capability.
+     *
+     * The tradeoff, stated because it is real: with these gone, nothing works if
+     * llama-swap is not running. Direct entries were a fallback you could reach by
+     * starting one loader by hand.
+     */
+    private val retired = listOf(
+        "http://127.0.0.1:8080" to "",
+        "http://127.0.0.1:8081" to "",
     )
 
     /**
@@ -89,10 +109,21 @@ class ProviderRepository @Inject constructor(
      * adding a tombstone, not just a DELETE.
      */
     suspend fun ensureDefaults() {
-        val existing = dao.all().map { it.baseUrl to it.model }.toSet()
+        val rows = dao.all()
+        val existing = rows.map { it.baseUrl to it.model }.toSet()
         val missing = defaults.filterNot { (it.baseUrl to it.model) in existing }
-        if (missing.isEmpty()) return
-        db.withTransaction { missing.forEach { dao.insert(it) } }
+        val stale = rows.filter { (it.baseUrl to it.model) in retired }
+        if (missing.isEmpty() && stale.isEmpty()) return
+
+        db.withTransaction {
+            missing.forEach { dao.insert(it) }
+            stale.forEach { dao.delete(it) }
+            // Deleting the active row would leave the picker with nothing selected and
+            // the app pointed at a fallback it never chose. Re-elect explicitly.
+            if (dao.active() == null) {
+                dao.all().firstOrNull()?.let { dao.setActive(it.id) }
+            }
+        }
     }
 
     /**
