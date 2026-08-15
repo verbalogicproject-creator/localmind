@@ -1,0 +1,208 @@
+name: ci
+
+# The agent loop. Optimised for TIME-TO-FAILURE, not time-to-success: an agent
+# pays this round trip on every iteration, so the cheapest checks gate the
+# expensive ones.
+#
+#   preflight (~30s)  ->  build + unit + lint (~2-3m)
+#
+# Release artifacts are deliberately NOT published here. Without signing
+# secrets the release variant is unsigned, and an unsigned APK on an artifact
+# list invites someone to try to install it. release.yml owns distribution.
+#
+# Security: no untrusted input (commit messages, PR titles, branch names from
+# forks) is interpolated into any `run:` block. Dynamic values come from
+# GitHub-controlled env vars or our own step outputs.
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  # ---------------------------------------------------------------------
+  # Free, ~30s, no JDK. Catches the LLM-hallucination classes that would
+  # otherwise cost a full 3-minute round trip to discover.
+  # ---------------------------------------------------------------------
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Static preflight
+        run: bash scripts/preflight.sh
+
+      - name: Summary
+        if: always()
+        run: echo "preflight completed for \`${GITHUB_SHA:0:7}\`" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    needs: preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build, test and lint
+        id: gradle
+        run: |
+          set -o pipefail
+          ./gradlew assembleDebug testDebugUnitTest lint --stacktrace 2>&1 | tee build.log
+
+      # Gradle prints Kotlin errors as `e: file:///abs/path/F.kt:12:34 message`.
+      # Re-emit them as GitHub annotations so a failure is retrievable as
+      # structured file/line data instead of by grepping several hundred lines.
+      - name: Annotate compiler errors
+        if: failure()
+        run: |
+          grep -oE '^e: file://[^ ]+:[0-9]+:[0-9]+ .*' build.log 2>/dev/null | while read -r line; do
+            loc="${line#e: file://}"
+            file="${loc%%:*}"; rest="${loc#*:}"
+            ln="${rest%%:*}"; rest="${rest#*:}"
+            col="${rest%%[: ]*}"; msg="${rest#* }"
+            echo "::error file=${file#${GITHUB_WORKSPACE}/},line=${ln},col=${col}::${msg}"
+          done || true
+
+      # `testDebugUnitTest` reports SUCCESS when there are no tests at all -- the
+      # task is simply NO-SOURCE. Every repo in this lineage had zero test sources
+      # while CI displayed a green "test" step, and release.yml gated on that step.
+      # The gate was hollow and nothing said so.
+      #
+      # A test suite that cannot fail is worse than no suite: it converts "untested"
+      # into "verified" on the dashboard.
+      # Only speaks when the build actually produced results. On a compile failure
+      # "0 tests ran" is true but is not the root cause, and a second loud error
+      # competing with the real one is how three consecutive commits here once got
+      # "fixed" against a problem the log never named.
+      - name: Fail if the test suite is vacuous
+        if: steps.gradle.outcome == 'success'
+        run: |
+          shopt -s nullglob globstar
+          total=0
+          for f in app/build/test-results/**/*.xml; do
+            n=$(sed -n 's/.*<testsuite[^>]* tests="\([0-9]*\)".*/\1/p' "$f" | head -1)
+            total=$(( total + ${n:-0} ))
+          done
+          echo "unit tests executed: $total"
+          if [ "$total" -eq 0 ]; then
+            echo "::error::0 unit tests ran. testDebugUnitTest passed vacuously -- this is not a green suite."
+            exit 1
+          fi
+          echo "- unit tests executed: **$total**" >> "$GITHUB_STEP_SUMMARY"
+
+      # Exercise R8 on every push. Minification breaks in ways debug builds
+      # never show, and finding that only at release time is too late.
+      - name: Exercise R8 (release compile, not published)
+        run: ./gradlew assembleRelease bundleRelease --stacktrace
+
+      # R8 emits a complete record of what it did, and until now nothing read it.
+      # mapping.txt is the authoritative answer to "was this renamed or removed",
+      # it costs milliseconds, and it needs no emulator.
+      #
+      # The first run of this checker found that R8 had deleted the conformance
+      # app's @Serializable DTO from the shipped release as unused -- silently
+      # voiding the suite's entire minification claim, invisibly to every other rung.
+      - name: Verify R8 preserved what must survive
+        run: |
+          MAP=app/build/outputs/mapping/release/mapping.txt
+          if [ ! -f "$MAP" ]; then
+            echo "::error::$MAP absent -- release build did not run, or minification is off."
+            exit 1
+          fi
+          python3 scripts/verify_mapping.py "$MAP" \
+            app/src/main/AndroidManifest.xml \
+            app/src/main \
+            com.verbalogix.assistant \
+            com.verbalogix.assistant.data.ItemDto
+
+      - name: Name artifacts with the commit
+        id: names
+        run: |
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          echo "apk=localmind-debug-${SHORT_SHA}.apk" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHORT_SHA}" >> "$GITHUB_OUTPUT"
+
+      # SHA-stamped on purpose. A stale artifact from the wrong commit then
+      # announces itself instead of looking like a fresh green build.
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.names.outputs.apk }}
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # Lint gates hard (AGP defaults abortOnError=true) but writes no report
+      # anywhere retrievable, so a lint failure was previously diagnosable only
+      # from raw logs.
+      - name: Upload lint report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lint-report-${{ steps.names.outputs.sha }}
+          path: |
+            app/build/reports/lint-results-*.html
+            app/build/reports/lint-results-*.xml
+          if-no-files-found: warn
+          retention-days: 14
+
+      # Room writes app/schemas/*.json under exportSchema = true, but it writes them
+      # ON THE RUNNER. They must be committed for MigrationTestHelper to validate a
+      # future migration against the schema that actually shipped.
+      #
+      # There is no local Android SDK here, so the only way to obtain the genuine
+      # file is to take it out of a build. Hand-writing a file that must byte-match
+      # generated output is precisely the failure that produced a fabricated
+      # font_certs.xml and killed an app at launch through eleven green builds.
+      - name: Upload generated Room schemas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: room-schemas-${{ steps.names.outputs.sha }}
+          path: app/schemas/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload unit test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-tests-${{ steps.names.outputs.sha }}
+          path: app/build/reports/tests/testDebugUnitTest/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### Build \`${{ steps.names.outputs.sha }}\`"
+            echo ""
+            echo "| artifact | name |"
+            echo "|---|---|"
+            echo "| debug APK | \`${{ steps.names.outputs.apk }}\` |"
+            echo ""
+            echo "Release artifacts are not published here — they are unsigned"
+            echo "without secrets. Tag \`v*\` to cut a signed release."
+          } >> "$GITHUB_STEP_SUMMARY"

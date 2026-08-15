@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A checkmark in terminal amber. Vector, so no PNG density set is required.
+     Adaptive-icon foregrounds are 108x108dp with the outer 18dp masked away on all
+     sides, leaving a 72x72dp safe zone. The path stays inside it. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFB000"
+        android:pathData="M30,55 L30,63 L48,81 L78,51 L78,43 L72,37 L48,61 L36,49 Z" />
+</vector>

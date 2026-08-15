@@ -1,0 +1,235 @@
+name: release
+
+# Push a tag matching `v*` (e.g. v0.1.0) to cut a signed release.
+#
+# Required repository secrets:
+#   SIGNING_KEY_BASE64         base64 of the .jks keystore
+#   SIGNING_KEY_ALIAS          key alias inside the keystore
+#   SIGNING_KEYSTORE_PASSWORD  keystore password
+#   SIGNING_KEY_PASSWORD       key password
+#
+# Without them this fails immediately and loudly. It must never fall back to
+# another key: the 20-device cohort can only be upgraded by builds signed with
+# the same key, and a silently-substituted key breaks that permanently.
+#
+# Security: every GitHub expression that reaches a `run:` block is routed
+# through `env:` first, to avoid command injection via expression expansion.
+# Never inline `${{ github.* }}` directly into shell.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to release (e.g. v0.1.0)'
+        required: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  # Never ship a commit whose tests did not pass. The reference workflow this
+  # was extracted from released straight off the tag, so a tag on a broken
+  # commit produced a signed, published, broken APK.
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - run: bash scripts/preflight.sh
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Test and lint
+        run: ./gradlew testDebugUnitTest lint --stacktrace
+
+  release:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # The repo default is `read`; creating a Release needs this explicitly.
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0        # generate_release_notes needs history
+
+      - name: Fail early if signing secrets are missing
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+        run: |
+          # SIGNING_KEY_PASSWORD is intentionally NOT required. keytool offers to
+          # reuse the store password for the key, which is the common choice, so
+          # it defaults to SIGNING_KEYSTORE_PASSWORD below. Set it only if the
+          # two genuinely differ.
+          missing=0
+          for v in SIGNING_KEY_BASE64 SIGNING_KEY_ALIAS SIGNING_KEYSTORE_PASSWORD; do
+            if [ -z "${!v}" ]; then
+              echo "::error::Missing repository secret $v -- cannot sign the release."
+              missing=1
+            fi
+          done
+          [ "$missing" -eq 0 ] || exit 1
+
+      - name: Resolve and validate tag
+        id: tag
+        env:
+          INPUT_TAG: ${{ github.event.inputs.tag }}
+        run: |
+          # An explicit workflow_dispatch input ALWAYS wins. The previous version
+          # only fell back to it when the ref was main/master/empty, which made
+          # dispatching from any other branch fail: GITHUB_REF_NAME was the branch
+          # name, that is not a valid semver tag, and validation rejected it before
+          # the signing checks ever ran. Found while trying to exercise the
+          # cert-pin check from a branch.
+          TAG="${INPUT_TAG:-$GITHUB_REF_NAME}"
+          if ! printf '%s' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[A-Za-z0-9._-]+)?$'; then
+            echo "::error::Tag '$TAG' is not vMAJOR.MINOR.PATCH[-suffix]"
+            exit 1
+          fi
+          SEMVER="${TAG#v}"; CORE="${SEMVER%%-*}"
+          MAJOR="${CORE%%.*}"; REST="${CORE#*.}"
+          MINOR="${REST%%.*}"; PATCH="${REST#*.}"
+          # Monotonic and stable. github.run_number would reset if the repo moves.
+          CODE=$(( MAJOR * 10000 + MINOR * 100 + PATCH ))
+          echo "tag=$TAG"        >> "$GITHUB_OUTPUT"
+          echo "name=$SEMVER"    >> "$GITHUB_OUTPUT"
+          echo "code=$CODE"      >> "$GITHUB_OUTPUT"
+
+      - name: Set up JDK 17 (Temurin)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Decode keystore
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
+        run: |
+          printf '%s' "$SIGNING_KEY_BASE64" | base64 -d > "$RUNNER_TEMP/keystore.jks"
+          size=$(stat -c '%s' "$RUNNER_TEMP/keystore.jks")
+          if [ "$size" -lt 1024 ]; then
+            echo "::error::Decoded keystore is $size bytes -- the secret is corrupt or truncated."
+            exit 1
+          fi
+
+      - name: Build signed release
+        env:
+          SIGNING_KEYSTORE_PATH: ${{ runner.temp }}/keystore.jks
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          # Falls back to the store password -- see the guard step.
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD || secrets.SIGNING_KEYSTORE_PASSWORD }}
+          ORG_GRADLE_PROJECT_versionName: ${{ steps.tag.outputs.name }}
+          ORG_GRADLE_PROJECT_versionCode: ${{ steps.tag.outputs.code }}
+        run: ./gradlew assembleRelease bundleRelease --stacktrace
+
+      - name: Verify the APK is signed WITH THE RIGHT KEY
+        run: |
+          APK=$(find app/build/outputs/apk/release -name "*.apk" ! -name "*unsigned*" | head -1)
+          if [ -z "$APK" ]; then
+            echo "::error::No signed APK produced -- only an unsigned artifact exists."
+            exit 1
+          fi
+
+          # Question 1: is it signed at all?
+          if ! grep -qa 'APK Sig Block 42' "$APK"; then
+            echo "::error::APK has no v2/v3 signing block."
+            exit 1
+          fi
+
+          # Question 2: is it signed with OUR key? A different question, and the only
+          # one that catches what actually happened: an earlier build.gradle.kts fell
+          # back to the debug signing config when secrets were absent, so every CI
+          # "release" was signed with the runner's auto-generated debug keystore -- a
+          # different key each run. Every one of those APKs passed check 1. Nothing
+          # reported that consecutive releases could not upgrade each other.
+          #
+          # The signing certificate is one of exactly three things about an Android
+          # app that can never be changed after the first install. There is no
+          # recovery, so this runs before publishing rather than after.
+          PIN_FILE=.appfactory/release/cert.sha256
+          if [ ! -f "$PIN_FILE" ]; then
+            echo "::error::$PIN_FILE missing. Refusing to publish an APK whose signing key is unpinned."
+            exit 1
+          fi
+          PIN=$(tr -d ': \n\t' < "$PIN_FILE" | tr 'A-F' 'a-f')
+
+          # apksigner ships with the Android SDK, preinstalled on ubuntu-latest.
+          SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-/usr/local/lib/android/sdk}}"
+          APKSIGNER=$(find "$SDK/build-tools" -name apksigner 2>/dev/null | sort -V | tail -1)
+
+          if [ -n "$APKSIGNER" ]; then
+            ACTUAL=$("$APKSIGNER" verify --print-certs "$APK" \
+              | grep -i 'SHA-256 digest' | head -1 | sed 's/.*: *//' | tr -d ': \n\t' | tr 'A-F' 'a-f')
+          else
+            # Fall back to reading the APK Signing Block directly. Stdlib-only, no
+            # SDK, so the pin is enforced even if the runner image moves its tooling.
+            # A check that silently degrades to "not verified" is worse than none.
+            #
+            # A script file, not an inline heredoc: a heredoc inside a `run: |` block
+            # scalar has to be indented to the block's level, and writing it
+            # flush-left -- where a heredoc naturally belongs -- silently produces an
+            # invalid workflow. That already cost one wasted tag here.
+            echo "apksigner not found under $SDK; reading the signing block directly"
+            ACTUAL=$(python3 scripts/apk_cert.py "$APK" | tail -1)
+          fi
+
+          if [ -z "$ACTUAL" ]; then
+            echo "::error::Could not read the signing certificate from the APK."
+            exit 1
+          fi
+          if [ "$ACTUAL" != "$PIN" ]; then
+            echo "::error::WRONG SIGNING KEY -- publishing this would orphan every existing install."
+            echo "::error::expected $PIN"
+            echo "::error::actual   $ACTUAL"
+            exit 1
+          fi
+          echo "signed APK: $APK"
+          echo "cert digest matches pin: $ACTUAL"
+
+      - name: Collect release assets
+        id: assets
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
+        run: |
+          mkdir -p dist
+          APK=$(find app/build/outputs/apk/release -name "*.apk" ! -name "*unsigned*" | head -1)
+          AAB=$(find app/build/outputs/bundle/release -name "*.aab" | head -1)
+          MAP=app/build/outputs/mapping/release/mapping.txt
+          cp "$APK" "dist/localmind-${TAG}.apk"
+          [ -n "$AAB" ] && cp "$AAB" "dist/localmind-${TAG}.aab"
+          # Without this, CrashLog output from a sideloaded release build is
+          # unreadable: R8 obfuscates it and the mapping was discarded per-run.
+          if [ -f "$MAP" ]; then cp "$MAP" "dist/mapping-${TAG}.txt"; fi
+          ( cd dist && sha256sum ./* > "SHA256SUMS.txt" )
+          ls -la dist
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.tag }}
+          name: ${{ steps.tag.outputs.tag }}
+          draft: false
+          prerelease: ${{ contains(steps.tag.outputs.tag, '-') }}
+          generate_release_notes: true
+          files: dist/*
+
+      - name: Scrub keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/keystore.jks"

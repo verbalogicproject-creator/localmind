@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Adaptive icons require API 26. minSdk is 28, so this single qualifier covers
+     every supported device and no density-specific PNG fallbacks are needed.
+
+     A manifest referencing @mipmap/ic_launcher with no such resource fails at AAPT
+     with "resource mipmap/ic_launcher not found". That happened once here after an
+     icon purge, and cost a full CI round trip to discover.
+
+     Note: XML comments may not contain a double hyphen. Writing one here is a
+     parse error, not a style problem, and it is easy to introduce by carrying an
+     em-dash habit over from shell or Kotlin. -->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

@@ -1,0 +1,5 @@
+[versions]
+coreKtx = "1.13.0"
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+totally-absent-artifact = { group = "com.example", name = "thing", version = "1.0" }

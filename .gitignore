@@ -1,0 +1,26 @@
+.gradle/
+build/
+app/build/
+local.properties
+.idea/
+.kotlin/
+captures/
+*.iml
+
+# Build outputs. An APK committed once is in the history forever and bloats every
+# clone; the Release page is where artifacts belong.
+*.apk
+*.aab
+*.so
+
+# Signing material. These patterns exist BEFORE any keystore does -- committing a
+# release key even once means it is in the git history permanently, and the signing
+# certificate is one of exactly three things about an Android app that can never be
+# changed after the first install.
+*.jks
+*.keystore
+*.p12
+keystore.properties
+
+# Pipeline scratch
+.appfactory/tmp/

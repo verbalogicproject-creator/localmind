@@ -1,0 +1,14 @@
+name: ci
+on: [push]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Do a thing
+        run: |
+          echo start
+          RESULT=$(python3 - <<'PY'
+          print("indented to the block level; YAML strips it before bash sees it")
+          PY
+          )
+          echo "$RESULT"

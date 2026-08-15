@@ -1,0 +1,71 @@
+# Pinned, known-good matrix. AGP / Kotlin / KSP / Compose form a tight compatibility
+# lattice -- KSP in particular is pinned to an exact Kotlin version (2.0.0-1.0.21 means
+# "KSP 1.0.21 for Kotlin 2.0.0") and will refuse to load against any other.
+#
+# Nothing here is a range or a `+`. An unpinned version turns a green build into a
+# time bomb that detonates on someone else's machine, months later.
+#
+# This exact set is proven: it is what CI compiled successfully for ColdForge.
+
+[versions]
+agp = "8.3.1"
+kotlin = "2.0.0"
+ksp = "2.0.0-1.0.21"
+
+coreKtx = "1.13.0"
+lifecycle = "2.7.0"
+activityCompose = "1.9.0"
+composeBom = "2024.04.01"
+
+hilt = "2.51.1"
+hiltNavCompose = "1.2.0"
+room = "2.6.1"
+serialization = "1.6.3"
+
+junit = "4.13.2"
+androidxJunit = "1.1.5"
+espresso = "3.5.1"
+androidxTestRunner = "1.5.2"
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycle" }
+# Declared explicitly. Using androidx.lifecycle.compose.* with only lifecycle-runtime-ktx
+# on the classpath produced 1 root error and 4 cascade errors in ColdForge.
+androidx-lifecycle-runtime-compose = { group = "androidx.lifecycle", name = "lifecycle-runtime-compose", version.ref = "lifecycle" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
+androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
+androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
+
+hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
+hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
+androidx-hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltNavCompose" }
+
+room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
+room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
+room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+
+# Explicit. ColdForge got this transitively via ktor-serialization and would have
+# broken the moment ktor was dropped.
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
+
+junit = { group = "junit", name = "junit", version.ref = "junit" }
+androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }
+androidx-test-runner = { group = "androidx.test", name = "runner", version.ref = "androidxTestRunner" }
+androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espresso" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }

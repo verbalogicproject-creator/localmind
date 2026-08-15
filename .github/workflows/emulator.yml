@@ -1,0 +1,119 @@
+name: emulator
+
+# The rung that answers "does it launch".
+#
+# Every cheaper rung -- preflight, compile, unit tests, lint, R8 -- only ever proves
+# the app COMPILES. Three of the worst failures in this lineage compiled perfectly
+# and died at launch: a missing @HiltAndroidApp, a fabricated font certificate, and
+# R8 stripping a kotlinx.serialization serializer. Nine consecutive green builds
+# shipped an app that crashed before rendering a pixel.
+#
+# Deliberately NOT on every push. This costs 6-12 minutes against ci.yml's 2-4, and
+# the inner development loop has to stay fast or it stops being used. Runs on main,
+# on tags, and on demand.
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+    # Docs-only changes cannot break a launch. (Ignored for tag pushes, which is
+    # correct -- a release is verified regardless of what changed.)
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+  workflow_dispatch:
+
+concurrency:
+  group: emulator-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  instrumented:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    strategy:
+      # One API level failing should not hide the other's result.
+      fail-fast: false
+      matrix:
+        # minSdk and targetSdk -- the two levels that are actually contractual.
+        # Everything between is interpolation; these two are promises.
+        api-level: [28, 34]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Without KVM the emulator falls back to software emulation and a 6-minute
+      # job becomes a 40-minute timeout.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Creating an AVD takes several minutes. Cache it, keyed by API level, so only
+      # the first run on each level pays that cost.
+      - name: Cache AVD
+        uses: actions/cache@v4
+        id: avd-cache
+        with:
+          path: |
+            ~/.android/avd/*
+            ~/.android/adb_keys
+            ~/.android/avd/*.ini
+          key: avd-${{ matrix.api-level }}-v1
+
+      - name: Create AVD snapshot
+        if: steps.avd-cache.outputs.cache-hit != 'true'
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          # `default` not `google_apis` -- this app needs no Play services, and the
+          # smaller image boots meaningfully faster.
+          target: default
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
+          disable-animations: false
+          script: echo "AVD created for API ${{ matrix.api-level }}"
+
+      - name: Instrumented tests + release launch smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          SIGNING_KEYSTORE_PATH: ${{ runner.temp }}/keystore.jks
+          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
+          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD || secrets.SIGNING_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY_BASE64 }}
+          # For the upgrade-continuity check, which downloads the previous release.
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+        with:
+          api-level: ${{ matrix.api-level }}
+          arch: x86_64
+          target: default
+          force-avd-creation: false
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none -no-snapshot-save
+          disable-animations: true
+          script: bash scripts/emulator-verify.sh
+
+      - name: Upload emulator artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-api${{ matrix.api-level }}-${{ github.sha }}
+          path: |
+            emulator-out/**
+            app/build/reports/androidTests/**
+          if-no-files-found: warn
+          retention-days: 14
