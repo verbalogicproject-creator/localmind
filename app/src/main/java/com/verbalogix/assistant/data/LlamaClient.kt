@@ -53,6 +53,28 @@ private data class ChatRequest(
      * `reasoning_budget` only trims; the template kwarg switches it off. Templates
      * that do not define the variable ignore it, so sending it is safe for models
      * that never reason.
+     *
+     * AUTHORITY: this is Qwen's documented hard switch, not an inference. A maintainer
+     * gives exactly this form for API deployments --
+     * https://huggingface.co/Qwen/Qwen3.5-9B/discussions/13 and
+     * https://qwen.readthedocs.io/en/latest/getting_started/quickstart.html
+     *
+     * DO NOT reach for the documented SOFT switch (`/think`, `/no_think` appended to
+     * the prompt). It is real for Qwen3 and a trap for Qwen3.5-4B, measured here:
+     *
+     *   plain "hi"          reasoning 1199 chars -> 35 char answer
+     *   "hi /no_think"      reasoning 2409 chars -> ZERO answer
+     *   hard switch         reasoning    0 chars -> 32 char answer
+     *
+     * The soft switch DOUBLED the deliberation and returned no answer at all: the
+     * template does not honour the token, so the model reads it as part of the
+     * question and thinks about that instead. It would surface to the user as a
+     * failed request.
+     *
+     * Worth keeping because it is the project thesis in miniature. The documentation
+     * established which mechanism is canonical; only running it established that the
+     * other documented mechanism is broken for this model. Neither method would have
+     * found both.
      */
     @SerialName("chat_template_kwargs")
     val chatTemplateKwargs: Map<String, Boolean>? = null,
