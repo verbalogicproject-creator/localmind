@@ -1,5 +1,6 @@
 package com.verbalogix.assistant.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Dao
 import androidx.room.Entity
 import androidx.room.Insert
@@ -59,7 +60,20 @@ data class Provider(
      * That distinction is why this is a column rather than a constant, and it also
      * decides how status must be read -- see LlamaClient.status(), where getting it
      * wrong costs the user 41 seconds.
+     *
+     * The SQL default is declared explicitly, and the Kotlin `= ""` is not a substitute
+     * for it. A Kotlin default never reaches SQL, so without this annotation Room would
+     * emit CREATE TABLE with no default while MIGRATION_2_3 must supply one -- SQLite
+     * rejects ADD COLUMN NOT NULL without a default on a non-empty table.
+     *
+     * Room tolerates that mismatch, which is what makes it dangerous: a fresh install
+     * and an upgraded install would end up with genuinely different table definitions,
+     * and the first raw INSERT omitting this column would work on one and fail on the
+     * other. Declaring it here makes both paths produce identical schemas.
      */
+    // The inner quotes are load-bearing: Room splices this string into the DDL
+    // verbatim, so "" would emit `DEFAULT ` followed by nothing.
+    @ColumnInfo(defaultValue = "''")
     val model: String = "",
     val isActive: Boolean = false,
 ) {
