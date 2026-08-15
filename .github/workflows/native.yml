@@ -96,19 +96,62 @@ jobs:
 
       - name: Configure
         run: |
+          # THESE FLAGS ARE ADOPTED, NOT DERIVED.
+          #
+          # The first attempt at this file assembled a plausible flag set by reading
+          # option names out of the root CMakeLists. It failed on the first build:
+          # LLAMA_BUILD_APP defaults to ON for a standalone build, so the unified
+          # binary was compiled and died on a missing build-info.h. Every flag chosen
+          # was defensible; the combination had never been built. Same failure class
+          # as deriving a version lattice from package metadata.
+          #
+          # So this is upstream's own Android configuration, from
+          # examples/llama.android/lib/build.gradle.kts at the pinned commit -- the
+          # one combination that is known to produce a working Android library.
+          #
+          # The two that matter most, and that a hand-rolled set would never guess:
+          #
+          #   GGML_BACKEND_DL + GGML_CPU_ALL_VARIANTS
+          #     builds every CPU variant as a SEPARATELY LOADABLE backend, chosen at
+          #     runtime from the detected CPU. This is why no -march flag belongs
+          #     here: dispatch is a load-time decision, not a compile-time one, and
+          #     baking in an ISA would SIGILL on an older phone in the cohort.
+          #     It also means the build emits MANY .so files, all of which must ship.
+          #
+          #   GGML_CPU_KLEIDIAI (arm64 only)
+          #     Arm's optimised kernels. Upstream turns it on for arm64-v8a and off
+          #     for x86_64, along with OpenMP -- which is ON for arm64 here, the
+          #     opposite of what the generic Android docs say.
+          if [ "${{ matrix.abi }}" = "arm64-v8a" ]; then
+            ARCH_FLAGS="-DGGML_SYSTEM_ARCH=ARM -DGGML_CPU_KLEIDIAI=ON -DGGML_OPENMP=ON"
+          else
+            ARCH_FLAGS="-DGGML_SYSTEM_ARCH=x86 -DGGML_CPU_KLEIDIAI=OFF -DGGML_OPENMP=OFF"
+          fi
+          echo "arch flags: $ARCH_FLAGS"
+
+          # ANDROID_PLATFORM stays at 28, this app's minSdk, though upstream's own
+          # module declares minSdk 33. If the native code will not build at 28 that
+          # is a finding worth having explicitly: it would mean embedded mode costs
+          # us every device between API 28 and 32, which is a decision, not a detail.
           cmake -S llama.cpp -B build \
             -DCMAKE_TOOLCHAIN_FILE="${{ steps.tools.outputs.ndk }}/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=${{ matrix.abi }} \
             -DANDROID_PLATFORM=android-28 \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=ON \
-            -DGGML_OPENMP=OFF \
-            -DGGML_LLAMAFILE=OFF \
-            -DLLAMA_CURL=OFF \
+            -DLLAMA_BUILD_APP=OFF \
+            -DLLAMA_BUILD_COMMON=ON \
+            -DLLAMA_BUILD_UI=OFF \
+            -DLLAMA_OPENSSL=OFF \
             -DLLAMA_BUILD_TESTS=OFF \
             -DLLAMA_BUILD_EXAMPLES=OFF \
             -DLLAMA_BUILD_TOOLS=OFF \
-            -DLLAMA_BUILD_SERVER=OFF
+            -DLLAMA_BUILD_SERVER=OFF \
+            -DGGML_NATIVE=OFF \
+            -DGGML_BACKEND_DL=ON \
+            -DGGML_CPU_ALL_VARIANTS=ON \
+            -DGGML_LLAMAFILE=OFF \
+            $ARCH_FLAGS
 
       - name: Build, and time it
         id: build
