@@ -17,8 +17,8 @@ lifecycle = "2.11.0"
 activityCompose = "1.13.0"
 composeBom = "2026.08.00"
 
-hilt = "2.60.1"
-hiltNavCompose = "1.4.0"
+hilt = "2.57.2"
+hiltNavCompose = "1.3.0"
 room = "2.8.4"
 serialization = "1.11.0"
 # Ktor CLIENT. The app talks to llama-server over loopback; it is not a server itself.
