@@ -34,6 +34,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.verbalogix.assistant.data.Message
@@ -110,7 +111,14 @@ private fun StatusStrip(status: ServerStatus, onRetry: () -> Unit, buildLabel: S
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 if (status.reachable) {
-                    Stat("model", status.model ?: "loaded")
+                    // The model name is the only unbounded value here, so it is the
+                    // one that must yield. Without weight(fill = false) it steals
+                    // width from the stats after it and "24.4" wraps to two lines.
+                    Stat(
+                        "model",
+                        status.model ?: "loaded",
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
                     status.contextSize?.let { Stat("ctx", it.toString()) }
                     Spacer(Modifier.weight(1f))
                     status.tokensPerSecond?.let { Stat("tok/s", "%.1f".format(it), live = true) }
@@ -139,12 +147,29 @@ private fun StatusStrip(status: ServerStatus, onRetry: () -> Unit, buildLabel: S
 }
 
 @Composable
-private fun Stat(key: String, value: String, live: Boolean = false, error: Boolean = false) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(key, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun Stat(
+    key: String,
+    value: String,
+    live: Boolean = false,
+    error: Boolean = false,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            key,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 1,
+        )
         Text(
             value,
             style = MaterialTheme.typography.bodySmall,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
             color = when {
                 error -> MaterialTheme.colorScheme.error
                 live -> MaterialTheme.colorScheme.primary
