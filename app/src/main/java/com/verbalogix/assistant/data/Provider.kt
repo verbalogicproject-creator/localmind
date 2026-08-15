@@ -19,7 +19,8 @@ import kotlinx.coroutines.flow.Flow
  *
  *   - running several specialists at once, each on the silicon that suits it:
  *       :8080  LFM2.5-8B-A1B    Adreno OpenCL   reasoning, synthesis
- *       :8081  Qwen3.5-4B       Hexagon NPU     code, structured output
+ *       :8081  Qwen3.5-4B       Adreno OpenCL   code, structured output
+ *     (both on the GPU: HTP decode measured 6.5x slower -- see ProviderRepository)
  *   - swapping the direct llama.cpp path for a Foundry Harness later, without the
  *     app learning anything new. Same protocol, different thing behind it.
  *

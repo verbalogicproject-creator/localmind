@@ -20,15 +20,30 @@ class ProviderRepository @Inject constructor(
     fun observeAll(): Flow<List<Provider>> = dao.observeAll()
 
     /**
-     * The defaults describe the machine this app was built for, and each is on the
-     * silicon that actually suits it -- measured, not assumed:
+     * The defaults describe the machine this app was built for. BOTH generation
+     * endpoints are on the GPU, and that is a measured correction to what this comment
+     * said first.
      *
-     *   LFM2.5-8B-A1B on Adreno OpenCL, because it is a hybrid conv + GQA model and
-     *   the Hexagon backend has no kernels for the convolution half. It will not load
-     *   on HTP0 at all.
+     * The original claim was that Qwen belongs on the Hexagon NPU "because it is a pure
+     * transformer, which is exactly the shape HTP has kernels for". The kernel half is
+     * true. The throughput half is false, and by a wide margin:
      *
-     *   Qwen3.5-4B on the NPU, because it is a pure transformer, which is exactly the
-     *   shape HTP does have kernels for.
+     *   LFM2.5-8B-A1B   Adreno OpenCL   22.7 - 24.9 tok/s
+     *   Qwen3.5-4B      Adreno OpenCL   11.7 tok/s
+     *   Qwen3.5-4B      HTP0 (NPU)      1.8 tok/s     <- 6.5x SLOWER than the GPU
+     *
+     * HTP wins at prefill and loses at decode. Prefill is one large batched matmul,
+     * compute-bound, which is what a DSP is built for. Decode is a single token at a
+     * time -- memory-bandwidth-bound, with a FastRPC round trip per token, and that
+     * fixed IPC cost dominates everything at batch size 1.
+     *
+     * Which is why embeddinggemma and the reranker ARE fast on HTP0: embedding and
+     * cross-encoder scoring are pure prefill and never decode. On this device the NPU
+     * is a RAG accelerator, not a chat accelerator.
+     *
+     * Note also that LFM2.5-8B-A1B is both larger and twice as fast as the dense 4B --
+     * 8B of weights at roughly 1B of active compute per token. For chat there is no
+     * trade-off to make; the MoE simply wins.
      *
      * If a port is not serving, the picker still lists it and the status strip says
      * unreachable. A configured-but-down provider is a fact worth showing, not an
