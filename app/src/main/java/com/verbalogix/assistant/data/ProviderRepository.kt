@@ -1,5 +1,6 @@
 package com.verbalogix.assistant.data
 
+import android.os.Build
 import androidx.room.withTransaction
 import com.verbalogix.assistant.BuildConfig
 import javax.inject.Inject
@@ -64,6 +65,29 @@ class ProviderRepository @Inject constructor(
     )
 
     /**
+     * On-device inference, seeded ONLY where it can work.
+     *
+     * Upstream's JNI calls __android_log_is_loggable, which arrived in Android 11, so
+     * the library cannot load on API 28 or 29. Listing it there would put a permanently
+     * broken entry in the picker of a device that is otherwise a perfectly good client.
+     *
+     * Gated at seed time rather than hidden at render time on purpose: ensureDefaults
+     * runs on every launch and keys on (baseUrl, model), so a phone that later receives
+     * an OS upgrade past 30 gains the entry by itself, with no migration.
+     */
+    private val embedded = if (Build.VERSION.SDK_INT >= EmbeddedEngine.MIN_API) {
+        listOf(
+            Provider(
+                name = "On-device",
+                baseUrl = Provider.EMBEDDED_URL,
+                mode = Provider.MODE_EMBEDDED,
+            ),
+        )
+    } else {
+        emptyList()
+    }
+
+    /**
      * The defaults describe the machine this app was built for. BOTH generation
      * endpoints are on the GPU, and that is a measured correction to what this comment
      * said first.
@@ -115,7 +139,7 @@ class ProviderRepository @Inject constructor(
         Provider(name = "LFM2.5 8B", baseUrl = SWAP_URL, model = "lfm-8b", isActive = true),
         Provider(name = "Qwen3.5 4B", baseUrl = SWAP_URL, model = "qwen-4b"),
         Provider(name = "Bonsai 8B \u00b7 1-bit", baseUrl = SWAP_URL, model = "bonsai-8b"),
-    ) + if (BuildConfig.DEBUG) mockHarness else emptyList()
+    ) + embedded + if (BuildConfig.DEBUG) mockHarness else emptyList()
 
     /**
      * Idempotent: inserts any default whose (baseUrl, model) pair is absent and leaves

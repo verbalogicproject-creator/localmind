@@ -85,6 +85,18 @@ data class Provider(
     companion object {
         const val MODE_DIRECT = "direct"
         const val MODE_HARNESS = "harness"
+
+        /**
+         * llama.cpp in this process. No baseUrl is dialled and no server is started --
+         * the row exists so that "which model answers" stays one question with one
+         * picker, rather than a provider list plus a separate on-device toggle.
+         *
+         * baseUrl is stored as the sentinel below rather than left empty, because an
+         * empty string would be indistinguishable from a misconfigured direct provider
+         * in the picker, which shows the URL under the name.
+         */
+        const val MODE_EMBEDDED = "embedded"
+        const val EMBEDDED_URL = "on-device"
     }
 }
 

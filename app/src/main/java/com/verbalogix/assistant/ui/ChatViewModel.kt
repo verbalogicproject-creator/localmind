@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.verbalogix.assistant.data.ChatMessage
 import com.verbalogix.assistant.data.CitationCodec
+import com.verbalogix.assistant.data.EmbeddedEngine
 import com.verbalogix.assistant.data.LlamaClient
 import com.verbalogix.assistant.data.Message
 import com.verbalogix.assistant.data.MessageDao
@@ -23,8 +24,19 @@ import kotlinx.coroutines.launch
 class ChatViewModel @Inject constructor(
     private val dao: MessageDao,
     private val llama: LlamaClient,
+    private val embedded: EmbeddedEngine,
     private val providers: ProviderRepository,
 ) : ViewModel() {
+
+    /**
+     * One question -- who answers this turn -- asked in one place.
+     *
+     * The alternative was a branch at each call site, and there are two: status and
+     * send. Two branches on the same condition is where they drift, and the drift is
+     * invisible: the strip would report an HTTP server while the reply came from the
+     * on-device model, or vice versa.
+     */
+    private fun isEmbedded(p: Provider) = p.mode == Provider.MODE_EMBEDDED
 
     /** Straight from Room, so a process death loses nothing. */
     val messages: StateFlow<List<Message>> = dao.observeAll()
@@ -103,7 +115,11 @@ class ChatViewModel @Inject constructor(
     fun refreshStatus() {
         viewModelScope.launch {
             val target = _provider.value ?: providers.active().also { _provider.value = it }
-            _status.value = llama.status(target.baseUrl, target.model)
+            _status.value = if (isEmbedded(target)) {
+                embedded.status()
+            } else {
+                llama.status(target.baseUrl, target.model)
+            }
         }
     }
 
@@ -169,7 +185,13 @@ class ChatViewModel @Inject constructor(
                     n++
                 }
             }
-            runCatching { llama.complete(target.baseUrl, target.model, history, _think.value) }
+            runCatching {
+                if (isEmbedded(target)) {
+                    embedded.complete(history, _think.value)
+                } else {
+                    llama.complete(target.baseUrl, target.model, history, _think.value)
+                }
+            }
                 .onSuccess { result ->
                     // Reasoning is kept, not discarded. This app's whole stance is
                     // that the machinery is the product -- on a device where you own
@@ -225,8 +247,14 @@ class ChatViewModel @Inject constructor(
             _sending.value = false
             // A swap endpoint has now loaded the model it was asked for, so the strip
             // should stop saying "idle". Cheap: /v1/models, no load triggered.
-            if (target.isSwap) _status.value = llama.status(target.baseUrl, target.model)
-                .copy(tokensPerSecond = _status.value.tokensPerSecond)
+            if (isEmbedded(target)) {
+                // The weights are resident now, which the strip was told they were not.
+                _status.value = embedded.status()
+                    .copy(tokensPerSecond = _status.value.tokensPerSecond)
+            } else if (target.isSwap) {
+                _status.value = llama.status(target.baseUrl, target.model)
+                    .copy(tokensPerSecond = _status.value.tokensPerSecond)
+            }
         }
     }
 

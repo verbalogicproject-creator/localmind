@@ -5,23 +5,20 @@
 #
 # ── com.arm.aichat.internal.InferenceEngineImpl ────────────────────────────────
 #
-# NOT LISTED YET, DELIBERATELY, and this note is the reminder to add it.
-#
-# It was listed, and CI refused it:
+# Listed as of the commit that made the engine live. It was listed once before that,
+# and CI was right to refuse it:
 #
 #     com.arm.aichat.internal.InferenceEngineImpl: REQUIRED but absent from the
 #     release build -- R8 shrank it away as unused, so any claim about minifying
 #     it is vacuous
 #
-# Which is correct. The vendored engine bindings are currently dead code: nothing
-# in the app calls them until EmbeddedProvider exists, so R8 removes them, and an
-# assertion that they survived minification would be asserting something false. A
-# guard written before the thing it guards is a guard that reports on nothing.
+# Nothing called the vendored bindings then, so R8 removed them and the assertion
+# was asserting something false. EmbeddedEngine now calls them, so the class is
+# reachable and the assertion means what it says.
 #
-# ADD THE LINE IN THE SAME COMMIT THAT MAKES THE ENGINE LIVE. From that point it is
-# load-bearing: JNI resolves native methods by symbol name, libai-chat.so exports
-# Java_com_arm_aichat_internal_InferenceEngineImpl_*, and a rename or removal by R8
-# becomes an UnsatisfiedLinkError in the RELEASE build only -- invisible to every
-# cheap rung, because debug builds are unminified.
+# It is load-bearing: JNI resolves native methods by symbol name, libai-chat.so
+# exports Java_com_arm_aichat_internal_InferenceEngineImpl_*, and a rename or removal
+# by R8 becomes an UnsatisfiedLinkError in the RELEASE build only -- invisible to
+# every cheap rung, because debug builds are unminified.
 #
-#     com.arm.aichat.internal.InferenceEngineImpl
+com.arm.aichat.internal.InferenceEngineImpl
