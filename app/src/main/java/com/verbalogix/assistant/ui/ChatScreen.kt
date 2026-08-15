@@ -313,6 +313,20 @@ private fun Stat(
 /** Row(rail, Column) -- the prototype's transcript shape, not chat bubbles. */
 @Composable
 private fun MessageRow(message: Message) {
+    // Reasoning collapses; everything else does not.
+    //
+    // The thesis of this UI is that the machinery is the product, and that still
+    // holds -- but showing reasoning expanded by default inverted it. Measured on
+    // device: Qwen3.5-4B spent roughly two thousand tokens deliberating the word
+    // "hi", producing THREE SCREENS of thinking above a one-line answer. The
+    // machinery was not being revealed, it was burying the thing the user asked for.
+    //
+    // Collapsed-with-a-count keeps both: the reasoning is visibly present, its size
+    // is stated as a fact, and reading it is one tap. Nothing is hidden -- it is
+    // folded, which is a different thing.
+    var expanded by remember(message.id) { mutableStateOf(false) }
+    val isThinking = message.role == "thinking"
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -328,22 +342,39 @@ private fun MessageRow(message: Message) {
             color = when (message.role) {
                 "user" -> MaterialTheme.colorScheme.primary
                 "error" -> MaterialTheme.colorScheme.error
-                "thinking" -> MaterialTheme.colorScheme.onSurfaceVariant
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             },
             modifier = Modifier.width(72.dp),
         )
-        Text(
-            text = message.content,
-            style = MaterialTheme.typography.bodyMedium,
-            color = when (message.role) {
-                "error" -> MaterialTheme.colorScheme.error
-                // Dimmed: present and readable, but visibly not the answer.
-                "thinking" -> MaterialTheme.colorScheme.onSurfaceVariant
-                else -> MaterialTheme.colorScheme.onBackground
-            },
-            modifier = Modifier.weight(1f),
-        )
+
+        if (isThinking && !expanded) {
+            // Words, not characters or tokens: the app cannot count the model's
+            // tokens without its tokeniser, and stating a number it did not measure
+            // would be the same class of mistake this project keeps finding.
+            val words = message.content.split(Regex("\\s+")).count { it.isNotEmpty() }
+            Text(
+                text = "thought for $words words · tap to read",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier
+                    .weight(1f)
+                    .clickable { expanded = true },
+            )
+        } else {
+            Text(
+                text = message.content,
+                style = MaterialTheme.typography.bodyMedium,
+                color = when (message.role) {
+                    "error" -> MaterialTheme.colorScheme.error
+                    // Dimmed: present and readable, but visibly not the answer.
+                    "thinking" -> MaterialTheme.colorScheme.onSurfaceVariant
+                    else -> MaterialTheme.colorScheme.onBackground
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .then(if (isThinking) Modifier.clickable { expanded = false } else Modifier),
+            )
+        }
     }
 }
 
