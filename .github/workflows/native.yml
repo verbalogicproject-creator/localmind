@@ -2,29 +2,36 @@ name: native
 
 # Builds llama.cpp for Android, ONCE per pinned upstream commit.
 #
-# WHY THIS IS NOT PART OF ci.yml
+# MEASURED, on ubuntu-latest, llama.cpp b10435, NDK 29.0.14206865:
 #
-# ci.yml is optimised for time-to-failure -- an agent pays that round trip on every
-# iteration, and it currently costs about three minutes. llama.cpp is a large C++ tree
-# and building it for two ABIs is not a three-minute job. Putting it in the push loop
-# would trade the fast rung for a slow one on every commit, to rebuild a library that
-# changes only when native/llama.cpp.pin changes.
+#   arm64-v8a   229s     11 shared libraries    172 MB unstripped -> 19 MB stripped
+#   x86_64      221s     (same shape)
 #
-# So the library is built here, keyed on the pin, and consumed as a prebuilt .so. This
-# is the same move as pinning a version lattice rather than resolving it per build.
+# The two run in parallel, so about four minutes of wall clock for both.
 #
-# WHAT THIS RUN IS FOR, THE FIRST TIME
+# WHY THIS IS NOT PART OF ci.yml -- restated against that measurement
 #
-# To MEASURE. The decision above assumes the native build is slow enough to be worth
-# separating; that assumption should be a number, not an intuition, and until this has
-# run once nobody here knows whether it is 4 minutes or 40. The summary reports the
-# per-ABI wall clock so the next decision is made against evidence.
+# The original reasoning here was that llama.cpp is a large C++ tree and "not a
+# three-minute job". That was an intuition, and the first run of this workflow existed
+# to replace it with a number. The number came back at the fast end -- 229s, not the
+# 40 minutes it could have been -- so the original argument does not hold as stated.
 #
-# NO -march FLAG, DELIBERATELY. Upstream's docs show -march=armv8.7a for "modern
-# devices", and llama.cpp already selects kernels at runtime from detected CPU
-# features. Baking in armv8.7a would produce SIGILL on any older phone in the
-# distribution cohort, which is a crash at launch on hardware we do not control and
-# cannot test. Runtime dispatch is the whole reason it exists.
+# The decision survives on a narrower and now-quantified basis: inside a Gradle build
+# the two ABIs are built one after another, so this is roughly 7.5 minutes ADDED to a
+# 3-minute inner loop, on every push, to rebuild a library that changes only when
+# native/llama.cpp.pin changes. Tripling the loop is the cost; the benefit is zero on
+# every commit that does not touch the pin.
+#
+# Keeping the honest version of that reasoning matters more than the conclusion: the
+# same argument would have justified a 40-minute build, and it should not have.
+#
+# NO -march FLAG, DELIBERATELY -- and the mechanism is worth stating precisely, because
+# the first version of this comment got it half right. It is not that llama.cpp picks
+# kernels at runtime inside one binary; it is that GGML_BACKEND_DL and
+# GGML_CPU_ALL_VARIANTS build SEVEN separate CPU backends -- armv8.0 through armv9.2 --
+# each its own .so, and the right one is loaded at runtime from the detected CPU. That
+# dispatch has to be switched on, and once it is, baking in an ISA would be both
+# redundant and a SIGILL on any older phone in the cohort.
 
 on:
   workflow_dispatch:
@@ -161,30 +168,56 @@ jobs:
           end=$(date +%s)
           echo "seconds=$(( end - start ))" >> "$GITHUB_OUTPUT"
 
-      - name: Collect the shared libraries
+      - name: Collect the shared libraries, stripped and unstripped
         id: collect
         run: |
-          mkdir -p "out/${{ matrix.abi }}"
+          mkdir -p "out/${{ matrix.abi }}" "symbols/${{ matrix.abi }}"
           # find, not a fixed path: ggml splits into several .so files whose names and
           # locations have changed upstream more than once, and a hardcoded list would
-          # silently ship a subset. An empty result is an error, not an empty upload.
+          # silently ship a subset. With GGML_CPU_ALL_VARIANTS there are eleven of
+          # them, seven being per-ISA CPU backends. An empty result is an error.
           found=$(find build -name '*.so' -type f | sort)
           if [ -z "$found" ]; then
             echo "::error::The build produced no .so files."
             exit 1
           fi
-          printf '%s\n' "$found" | while read -r so; do cp "$so" "out/${{ matrix.abi }}/"; done
-          ( cd "out/${{ matrix.abi }}" && sha256sum ./* | tee ../SHA256SUMS-${{ matrix.abi }}.txt )
-          n=$(printf '%s\n' "$found" | wc -l)
-          bytes=$(du -sb "out/${{ matrix.abi }}" | cut -f1)
-          echo "count=$n"   >> "$GITHUB_OUTPUT"
-          echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
+          printf '%s\n' "$found" | while read -r so; do
+            cp "$so" "symbols/${{ matrix.abi }}/"
+            cp "$so" "out/${{ matrix.abi }}/"
+          done
 
-      - name: Upload
+          # STRIP, and keep the symbols separately. Measured: 172 MB -> 19 MB, so this
+          # is not a tidy-up, it is the difference between a 22 MB app and a 175 MB one.
+          #
+          # The unstripped copies are kept for the same reason release.yml keeps R8's
+          # mapping.txt: a native crash report from a stripped library is a list of
+          # hex addresses, and the symbols to resolve them exist only at build time.
+          # Discarding them makes every future native crash undiagnosable.
+          STRIP="${{ steps.tools.outputs.ndk }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          [ -x "$STRIP" ] || { echo "::error::llvm-strip not found at $STRIP"; exit 1; }
+          find "out/${{ matrix.abi }}" -name '*.so' -exec "$STRIP" --strip-unneeded {} +
+
+          ( cd "out/${{ matrix.abi }}" && sha256sum ./* > ../SHA256SUMS-${{ matrix.abi }}.txt )
+          cat "out/SHA256SUMS-${{ matrix.abi }}.txt"
+
+          n=$(printf '%s\n' "$found" | wc -l)
+          echo "count=$n" >> "$GITHUB_OUTPUT"
+          echo "stripped=$(du -sb "out/${{ matrix.abi }}" | cut -f1)" >> "$GITHUB_OUTPUT"
+          echo "unstripped=$(du -sb "symbols/${{ matrix.abi }}" | cut -f1)" >> "$GITHUB_OUTPUT"
+
+      - name: Upload the libraries that ship
         uses: actions/upload-artifact@v4
         with:
           name: llama-${{ steps.pin.outputs.tag }}-${{ matrix.abi }}
           path: out/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload the symbols that make a native crash readable
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-${{ steps.pin.outputs.tag }}-${{ matrix.abi }}-symbols
+          path: symbols/
           if-no-files-found: error
           retention-days: 30
 
@@ -200,8 +233,10 @@ jobs:
             echo "| NDK | ${{ steps.tools.outputs.ndkver }} |"
             echo "| build time | **${{ steps.build.outputs.seconds }}s** |"
             echo "| libraries | ${{ steps.collect.outputs.count }} |"
-            echo "| total bytes | ${{ steps.collect.outputs.bytes }} |"
+            echo "| ships (stripped) | **${{ steps.collect.outputs.stripped }}** bytes |"
+            echo "| symbols kept | ${{ steps.collect.outputs.unstripped }} bytes |"
             echo ""
-            echo "Build time is the number this run exists to produce: it decides"
-            echo "whether the native build can ever live in the push loop."
+            echo "Both numbers decide something. Build time decides whether this can"
+            echo "ever live in the push loop; stripped size is what every device"
+            echo "downloads, before a single byte of model."
           } >> "$GITHUB_STEP_SUMMARY"
