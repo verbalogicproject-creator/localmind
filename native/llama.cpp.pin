@@ -1,0 +1,18 @@
+# The llama.cpp commit this app's native library is built from.
+#
+# PINNED, not tracked. Upstream cuts roughly fifteen releases a day, all of them
+# master snapshots -- there is no stable channel to follow, so "latest" is not a
+# version, it is whatever landed in the last hour. A pin makes the native library a
+# deliberate decision with a date on it, the same way versions/2026-08-api36.toml
+# does for the JVM lattice.
+#
+# Bumping this file is what triggers native.yml. Nothing else rebuilds the library,
+# which is the entire point: llama.cpp is a large C++ tree and rebuilding it on every
+# push would replace a three-minute inner loop with a much longer one.
+#
+# Chosen a day old rather than same-hour: not because upstream has a stable channel,
+# but because a snapshot that survived a day was not reverted.
+
+tag = b10435
+commit = 9e40df63ba151d771d8b247ac4011cf203337e99
+date = 2026-08-14T21:34:40Z

@@ -1,0 +1,164 @@
+name: native
+
+# Builds llama.cpp for Android, ONCE per pinned upstream commit.
+#
+# WHY THIS IS NOT PART OF ci.yml
+#
+# ci.yml is optimised for time-to-failure -- an agent pays that round trip on every
+# iteration, and it currently costs about three minutes. llama.cpp is a large C++ tree
+# and building it for two ABIs is not a three-minute job. Putting it in the push loop
+# would trade the fast rung for a slow one on every commit, to rebuild a library that
+# changes only when native/llama.cpp.pin changes.
+#
+# So the library is built here, keyed on the pin, and consumed as a prebuilt .so. This
+# is the same move as pinning a version lattice rather than resolving it per build.
+#
+# WHAT THIS RUN IS FOR, THE FIRST TIME
+#
+# To MEASURE. The decision above assumes the native build is slow enough to be worth
+# separating; that assumption should be a number, not an intuition, and until this has
+# run once nobody here knows whether it is 4 minutes or 40. The summary reports the
+# per-ABI wall clock so the next decision is made against evidence.
+#
+# NO -march FLAG, DELIBERATELY. Upstream's docs show -march=armv8.7a for "modern
+# devices", and llama.cpp already selects kernels at runtime from detected CPU
+# features. Baking in armv8.7a would produce SIGILL on any older phone in the
+# distribution cohort, which is a crash at launch on hardware we do not control and
+# cannot test. Runtime dispatch is the whole reason it exists.
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'native/llama.cpp.pin'
+      - '.github/workflows/native.yml'
+
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Both, on purpose. arm64-v8a is every real device; x86_64 is the emulator
+        # rung, which is the ONLY rung that answers "does it launch". An arm64-only
+        # library would leave that rung green while never once loading the native
+        # code -- coverage that reports success and verifies nothing.
+        abi: [arm64-v8a, x86_64]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the pin
+        id: pin
+        run: |
+          # Fail loudly on a malformed pin rather than silently building master.
+          COMMIT=$(sed -n 's/^commit *= *//p' native/llama.cpp.pin | tr -d ' \r')
+          TAG=$(sed -n 's/^tag *= *//p' native/llama.cpp.pin | tr -d ' \r')
+          if ! printf '%s' "$COMMIT" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "::error::native/llama.cpp.pin has no 40-character commit sha; refusing to guess."
+            exit 1
+          fi
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG"       >> "$GITHUB_OUTPUT"
+          echo "building llama.cpp $TAG ($COMMIT) for ${{ matrix.abi }}"
+
+      - name: Check out llama.cpp at the pinned commit
+        uses: actions/checkout@v4
+        with:
+          repository: ggml-org/llama.cpp
+          ref: ${{ steps.pin.outputs.commit }}
+          path: llama.cpp
+          fetch-depth: 1
+
+      - name: Report the toolchain actually used
+        id: tools
+        run: |
+          # The .so is a function of (source commit, NDK, flags). Two of those three
+          # are supplied by the runner image and move without notice, so they are
+          # recorded rather than assumed -- otherwise a library that stops working is
+          # undiagnosable, because nothing says what built it.
+          NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
+          [ -n "$NDK" ] || { echo "::error::No Android NDK on this runner."; exit 1; }
+          VER=$(sed -n 's/^Pkg.Revision *= *//p' "$NDK/source.properties" | tr -d ' \r')
+          echo "ndk=$NDK"       >> "$GITHUB_OUTPUT"
+          echo "ndkver=$VER"    >> "$GITHUB_OUTPUT"
+          echo "NDK $VER at $NDK"
+          cmake --version | head -1
+
+      - name: Configure
+        run: |
+          cmake -S llama.cpp -B build \
+            -DCMAKE_TOOLCHAIN_FILE="${{ steps.tools.outputs.ndk }}/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=${{ matrix.abi }} \
+            -DANDROID_PLATFORM=android-28 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DBUILD_SHARED_LIBS=ON \
+            -DGGML_OPENMP=OFF \
+            -DGGML_LLAMAFILE=OFF \
+            -DLLAMA_CURL=OFF \
+            -DLLAMA_BUILD_TESTS=OFF \
+            -DLLAMA_BUILD_EXAMPLES=OFF \
+            -DLLAMA_BUILD_TOOLS=OFF \
+            -DLLAMA_BUILD_SERVER=OFF
+
+      - name: Build, and time it
+        id: build
+        run: |
+          start=$(date +%s)
+          cmake --build build --config Release -j"$(nproc)"
+          end=$(date +%s)
+          echo "seconds=$(( end - start ))" >> "$GITHUB_OUTPUT"
+
+      - name: Collect the shared libraries
+        id: collect
+        run: |
+          mkdir -p "out/${{ matrix.abi }}"
+          # find, not a fixed path: ggml splits into several .so files whose names and
+          # locations have changed upstream more than once, and a hardcoded list would
+          # silently ship a subset. An empty result is an error, not an empty upload.
+          found=$(find build -name '*.so' -type f | sort)
+          if [ -z "$found" ]; then
+            echo "::error::The build produced no .so files."
+            exit 1
+          fi
+          printf '%s\n' "$found" | while read -r so; do cp "$so" "out/${{ matrix.abi }}/"; done
+          ( cd "out/${{ matrix.abi }}" && sha256sum ./* | tee ../SHA256SUMS-${{ matrix.abi }}.txt )
+          n=$(printf '%s\n' "$found" | wc -l)
+          bytes=$(du -sb "out/${{ matrix.abi }}" | cut -f1)
+          echo "count=$n"   >> "$GITHUB_OUTPUT"
+          echo "bytes=$bytes" >> "$GITHUB_OUTPUT"
+
+      - name: Upload
+        uses: actions/upload-artifact@v4
+        with:
+          name: llama-${{ steps.pin.outputs.tag }}-${{ matrix.abi }}
+          path: out/
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### ${{ matrix.abi }}"
+            echo ""
+            echo "| | |"
+            echo "|---|---|"
+            echo "| llama.cpp | \`${{ steps.pin.outputs.tag }}\` |"
+            echo "| NDK | ${{ steps.tools.outputs.ndkver }} |"
+            echo "| build time | **${{ steps.build.outputs.seconds }}s** |"
+            echo "| libraries | ${{ steps.collect.outputs.count }} |"
+            echo "| total bytes | ${{ steps.collect.outputs.bytes }} |"
+            echo ""
+            echo "Build time is the number this run exists to produce: it decides"
+            echo "whether the native build can ever live in the push loop."
+          } >> "$GITHUB_STEP_SUMMARY"
