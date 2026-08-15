@@ -7,7 +7,8 @@ name: native
 #   arm64-v8a   229s     11 shared libraries    172 MB unstripped -> 19 MB stripped
 #   x86_64      221s     (same shape)
 #
-# The two run in parallel, so about four minutes of wall clock for both.
+# The two run in parallel, so about four minutes of wall clock for both. Those figures
+# predate building upstream's JNI layer, which adds libai-chat.so.
 #
 # WHY THIS IS NOT PART OF ci.yml -- restated against that measurement
 #
@@ -129,18 +130,35 @@ jobs:
           #     Arm's optimised kernels. Upstream turns it on for arm64-v8a and off
           #     for x86_64, along with OpenMP -- which is ON for arm64 here, the
           #     opposite of what the generic Android docs say.
-          if [ "${{ matrix.abi }}" = "arm64-v8a" ]; then
-            ARCH_FLAGS="-DGGML_SYSTEM_ARCH=ARM -DGGML_CPU_KLEIDIAI=ON -DGGML_OPENMP=ON"
-          else
-            ARCH_FLAGS="-DGGML_SYSTEM_ARCH=x86 -DGGML_CPU_KLEIDIAI=OFF -DGGML_OPENMP=OFF"
-          fi
-          echo "arch flags: $ARCH_FLAGS"
-
+          #
+          # THE SOURCE DIRECTORY IS UPSTREAM'S ANDROID CMakeLists, NOT llama.cpp's ROOT,
+          # and that single choice is what actually fixed the first failure.
+          #
+          # LLAMA_STANDALONE is (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR),
+          # and LLAMA_BUILD_APP / TOOLS / TESTS / EXAMPLES / SERVER all default to it.
+          # Configuring llama.cpp as the TOP-LEVEL project therefore turns all of them
+          # ON, which is why the unified binary was being built and dying on a missing
+          # build-info.h. Upstream never hits it because they always add_subdirectory()
+          # llama.cpp beneath their own project -- so LLAMA_STANDALONE is OFF and every
+          # one of those defaults to OFF without a flag.
+          #
+          # Passing -DLLAMA_BUILD_APP=OFF by hand would also have worked, and would
+          # have left the same trap set for the next person. Building the way upstream
+          # builds removes the trap instead of stepping around it.
+          #
+          # It also produces libai-chat.so, the JNI layer, whose exported symbols are
+          # Java_com_arm_aichat_internal_InferenceEngineImpl_* -- so the Kotlin that
+          # calls it must live in that package. That is a reason to vendor upstream's
+          # Kotlin unmodified rather than rewrite it under our own package name.
+          #
+          # Their CMakeLists sets GGML_SYSTEM_ARCH, GGML_CPU_KLEIDIAI and GGML_OPENMP
+          # itself from ANDROID_ABI, so those are NOT passed here. The flags below are
+          # exactly the argument list from examples/llama.android/lib/build.gradle.kts.
+          #
           # ANDROID_PLATFORM stays at 28, this app's minSdk, though upstream's own
-          # module declares minSdk 33. If the native code will not build at 28 that
-          # is a finding worth having explicitly: it would mean embedded mode costs
-          # us every device between API 28 and 32, which is a decision, not a detail.
-          cmake -S llama.cpp -B build \
+          # module declares minSdk 33. Measured: it builds at 28, so embedded mode does
+          # not cost us the API 28-32 devices.
+          cmake -S llama.cpp/examples/llama.android/lib/src/main/cpp -B build \
             -DCMAKE_TOOLCHAIN_FILE="${{ steps.tools.outputs.ndk }}/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=${{ matrix.abi }} \
             -DANDROID_PLATFORM=android-28 \
@@ -148,17 +166,11 @@ jobs:
             -DBUILD_SHARED_LIBS=ON \
             -DLLAMA_BUILD_APP=OFF \
             -DLLAMA_BUILD_COMMON=ON \
-            -DLLAMA_BUILD_UI=OFF \
             -DLLAMA_OPENSSL=OFF \
-            -DLLAMA_BUILD_TESTS=OFF \
-            -DLLAMA_BUILD_EXAMPLES=OFF \
-            -DLLAMA_BUILD_TOOLS=OFF \
-            -DLLAMA_BUILD_SERVER=OFF \
             -DGGML_NATIVE=OFF \
             -DGGML_BACKEND_DL=ON \
             -DGGML_CPU_ALL_VARIANTS=ON \
-            -DGGML_LLAMAFILE=OFF \
-            $ARCH_FLAGS
+            -DGGML_LLAMAFILE=OFF
 
       - name: Build, and time it
         id: build
@@ -179,6 +191,14 @@ jobs:
           found=$(find build -name '*.so' -type f | sort)
           if [ -z "$found" ]; then
             echo "::error::The build produced no .so files."
+            exit 1
+          fi
+          # The JNI layer specifically. Everything else is an engine the app never
+          # calls directly, so a build that quietly produced only those would look
+          # successful and ship an app that cannot reach llama.cpp at all.
+          if ! printf '%s\n' "$found" | grep -q 'libai-chat\.so$'; then
+            echo "::error::libai-chat.so is absent -- the JNI layer did not build."
+            printf '%s\n' "$found"
             exit 1
           fi
           printf '%s\n' "$found" | while read -r so; do
