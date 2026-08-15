@@ -52,7 +52,7 @@ jobs:
       matrix:
         # minSdk and targetSdk -- the two levels that are actually contractual.
         # Everything between is interpolation; these two are promises.
-        api-level: [28, 34]
+        api-level: [28, 36]
 
     steps:
       - uses: actions/checkout@v4
@@ -84,7 +84,7 @@ jobs:
             ~/.android/avd/*
             ~/.android/adb_keys
             ~/.android/avd/*.ini
-          key: avd-${{ matrix.api-level }}-v1
+          key: avd-${{ matrix.api-level }}-v2
 
       - name: Create AVD snapshot
         if: steps.avd-cache.outputs.cache-hit != 'true'

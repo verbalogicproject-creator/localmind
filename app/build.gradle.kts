@@ -36,14 +36,14 @@ val hasReleaseSigning = releaseStoreFile != null && rootProject.file(releaseStor
 
 android {
     namespace = "com.verbalogix.assistant"
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.verbalogix.assistant"
         // Android 9. Adaptive icons need 26, so mipmap-anydpi-v26 covers every
         // supported device with no PNG fallbacks required.
         minSdk = 28
-        targetSdk = 34
+        targetSdk = 36
 
         // release.yml derives these from the git tag and passes them as
         // ORG_GRADLE_PROJECT_versionCode / _versionName. The literals are the
