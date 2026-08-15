@@ -47,6 +47,38 @@ copies it verbatim, which also preserves `gradlew.bat`'s CRLF line endings — P
 text mode silently rewrites them to LF, and `cmd.exe` mis-parses `goto` labels in an
 LF-only batch file.
 
-The wrapper jar and `.bat` here are **placeholders, not real wrapper files.** This
-check only asks whether they exist; a fixture that carried a genuine 43 KB jar would
-be paying for bytes the check never reads.
+## The fixture jars are real, and they have to be
+
+`gradlew` and `gradlew.bat` in these trees are placeholders — this check only asks
+whether they exist. `gradle-wrapper.jar` is **the genuine published one**, and the
+first attempt at these fixtures got that wrong.
+
+A stub named `gradle-wrapper.jar` was committed on the reasoning that the check never
+reads its bytes. True, and irrelevant: `gradle/actions/setup-gradle` runs with
+`validate-wrappers: true` by default, globs **the entire repository** for that
+filename, and checks every hit against the published Gradle release checksums. Two
+fixture stubs failed the build of the app they were vendored into:
+
+    ✗ Found unknown Gradle Wrapper JAR files:
+      15ae5e4d… scripts/preflight/fixtures/…/bug-gradlew-mode/gradle/wrapper/gradle-wrapper.jar
+      15ae5e4d… scripts/preflight/fixtures/…/fixed/gradle/wrapper/gradle-wrapper.jar
+    ✓ Found known Gradle Wrapper JAR files:
+      cb0da675… gradle/wrapper/gradle-wrapper.jar
+
+That validation is a supply-chain control: a swapped wrapper jar is arbitrary code
+execution on every build that repo ever runs. So the filename is not ours to reuse for
+test data — **any file called `gradle-wrapper.jar` anywhere in the tree is a claim
+about provenance**, and the fix is a real jar, never `validate-wrappers: false`.
+
+It matters more than one red build, because `scaffold.py` vendors these fixtures into
+every app it generates: a stub here fails the first CI run of every generated app,
+which is the exact defect this check was written for, reintroduced one directory down.
+
+### Why there is no fixture for a fake wrapper jar
+
+There cannot be one. A `bug-*` tree containing a bogus `gradle-wrapper.jar` would trip
+wrapper validation on this repo's own builds — the counterexample cannot coexist with
+the check that detects it. So this rule is not enforced locally: authenticity is left
+to `gradle/actions`, which owns the checksum list. That is the S6 rule holding, not an
+exception to it — a config with a canonical upstream is fetched, never reproduced —
+and the corpus rule holds too: no fixture, no check.
