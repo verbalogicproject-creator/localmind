@@ -6,11 +6,11 @@ import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
 
 /**
- * Owns which endpoint is current, and the one place providers get seeded.
+ * Owns which endpoint is current, and the one place providers are seeded.
  *
- * Seeding on the count == 0 path rather than inside MIGRATION_1_2 is deliberate: a
- * fresh install never runs a migration, so seeding there would leave new users with an
- * empty picker while upgraders got two entries. One path, one set of defaults.
+ * Seeding lives here rather than inside a migration because a fresh install never runs
+ * one -- seeding in MIGRATION_1_2 would leave new users with an empty picker while
+ * upgraders got entries. One path, one set of defaults.
  */
 @Singleton
 class ProviderRepository @Inject constructor(
@@ -48,19 +48,55 @@ class ProviderRepository @Inject constructor(
      * If a port is not serving, the picker still lists it and the status strip says
      * unreachable. A configured-but-down provider is a fact worth showing, not an
      * entry to hide.
+     *
+     * BOTH WAYS OF REACHING THE SAME TWO MODELS ARE SEEDED, because they fail
+     * differently and neither subsumes the other.
+     *
+     * Direct (:8080, :8081) is one llama-server per port, started by hand in Termux.
+     * It is the only path proven end to end on a physical device, and it keeps working
+     * with no proxy and nothing else running. It stays the baseline.
+     *
+     * Swap (:8090, the "⇄" entries) is llama-swap, which owns process lifecycle: ask
+     * for a model by name and it starts that server, stopping the other one first.
+     * Measured, that is not a convenience -- MemAvailable falls to 658 MB with the 8B
+     * resident, so the two genuinely cannot co-reside, and switching previously meant
+     * killing a server by hand in a terminal.
+     *
+     * Cost of a swap, measured: about 35s to load plus generation. That is OpenCL
+     * kernel compilation and weight upload, not proxy overhead -- llama-swap adds no
+     * measurable cost, since throughput through it matches the standalone numbers
+     * exactly.
      */
     private val defaults = listOf(
         Provider(name = "LFM2.5 8B", baseUrl = "http://127.0.0.1:8080", isActive = true),
         Provider(name = "Qwen3.5 4B", baseUrl = "http://127.0.0.1:8081"),
+        Provider(name = "LFM2.5 8B \u21c4", baseUrl = SWAP_URL, model = "lfm-8b"),
+        Provider(name = "Qwen3.5 4B \u21c4", baseUrl = SWAP_URL, model = "qwen-4b"),
     )
 
-    suspend fun ensureSeeded() {
-        if (dao.count() > 0) return
-        db.withTransaction { defaults.forEach { dao.insert(it) } }
+    /**
+     * Idempotent: inserts any default whose (baseUrl, model) pair is absent and leaves
+     * everything else alone.
+     *
+     * This replaced a `count == 0` guard, which seeded only a truly empty table and so
+     * could never deliver a NEW default to an already-installed copy -- exactly the
+     * situation the swap entries create. Keying on the pair rather than the name also
+     * means renaming a provider in a later release will not resurrect the old entry
+     * beside it.
+     *
+     * Consequence worth knowing: a deleted default returns on next launch. Nothing can
+     * hit that today because there is no delete affordance -- but adding one means
+     * adding a tombstone, not just a DELETE.
+     */
+    suspend fun ensureDefaults() {
+        val existing = dao.all().map { it.baseUrl to it.model }.toSet()
+        val missing = defaults.filterNot { (it.baseUrl to it.model) in existing }
+        if (missing.isEmpty()) return
+        db.withTransaction { missing.forEach { dao.insert(it) } }
     }
 
     /**
-     * Never null once ensureSeeded has run. Falls back to the first default rather
+     * Never null once ensureDefaults has run. Falls back to the first default rather
      * than throwing, because an assistant that refuses to open because of a settings
      * row is worse than one pointed at a plausible endpoint.
      */
@@ -70,5 +106,9 @@ class ProviderRepository @Inject constructor(
     suspend fun select(id: Long) = db.withTransaction {
         dao.clearActive()
         dao.setActive(id)
+    }
+
+    private companion object {
+        const val SWAP_URL = "http://127.0.0.1:8090"
     }
 }

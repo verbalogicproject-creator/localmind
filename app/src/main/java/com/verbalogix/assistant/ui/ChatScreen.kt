@@ -68,11 +68,14 @@ fun ChatScreen(
     providers: List<Provider>,
     provider: Provider?,
     onSelectProvider: (Long) -> Unit,
+    elapsed: Int?,
     modifier: Modifier = Modifier,
 ) {
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize()) {
-            StatusStrip(status, onRetryStatus, buildLabel, providers, provider, onSelectProvider)
+            StatusStrip(
+                status, onRetryStatus, buildLabel, providers, provider, onSelectProvider, elapsed,
+            )
 
             val listState = rememberLazyListState()
             // Follow the conversation as it grows, without stealing scroll from a
@@ -107,6 +110,7 @@ private fun StatusStrip(
     providers: List<Provider>,
     provider: Provider?,
     onSelectProvider: (Long) -> Unit,
+    elapsed: Int?,
 ) {
     Surface(color = MaterialTheme.colorScheme.surface) {
         Column(
@@ -124,7 +128,24 @@ private fun StatusStrip(
                 horizontalArrangement = Arrangement.spacedBy(16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                if (status.reachable) {
+                if (elapsed != null) {
+                    // A request is in flight. On a swap endpoint the first one starts a
+                    // model process, which measures ~35s before a single token exists.
+                    // A spinner alone reads as hung, and the natural response to a hung
+                    // app is to kill it -- throwing away a load that had nearly
+                    // finished. The count is the whole difference.
+                    Stat(
+                        "model",
+                        status.model ?: "…",
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(Modifier.weight(1f))
+                    Stat(
+                        if (status.modelLoaded == false) "loading" else "waiting",
+                        "${elapsed}s",
+                        live = true,
+                    )
+                } else if (status.reachable) {
                     // The model name is the only unbounded value here, so it is the
                     // one that must yield. Without weight(fill = false) it steals
                     // width from the stats after it and "24.4" wraps to two lines.
@@ -134,6 +155,10 @@ private fun StatusStrip(
                         modifier = Modifier.weight(1f, fill = false),
                     )
                     status.contextSize?.let { Stat("ctx", it.toString()) }
+                    // Only a swap endpoint can report this; a direct server holds its
+                    // model for as long as the process lives, so the field is null and
+                    // nothing is shown rather than a meaningless "loaded".
+                    status.modelLoaded?.let { Stat("state", if (it) "resident" else "idle") }
                     Spacer(Modifier.weight(1f))
                     status.tokensPerSecond?.let { Stat("tok/s", "%.1f".format(it), live = true) }
                 } else {
@@ -374,6 +399,7 @@ private fun Composer(sending: Boolean, onSend: (String) -> Unit) {
 private val previewProviders = listOf(
     Provider(1, "LFM2.5 8B", "http://127.0.0.1:8080", isActive = true),
     Provider(2, "Qwen3.5 4B", "http://127.0.0.1:8081"),
+    Provider(3, "LFM2.5 8B \u21c4", "http://127.0.0.1:8090", model = "lfm-8b"),
 )
 
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
@@ -400,6 +426,7 @@ private fun ChatScreenPreview() {
             providers = previewProviders,
             provider = previewProviders.first(),
             onSelectProvider = {},
+            elapsed = null,
         )
     }
 }
@@ -418,6 +445,7 @@ private fun ChatScreenOfflinePreview() {
             providers = previewProviders,
             provider = previewProviders.first(),
             onSelectProvider = {},
+            elapsed = null,
         )
     }
 }

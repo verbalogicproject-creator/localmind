@@ -87,11 +87,76 @@ class MigrationTest {
         }
 
         // And the new table exists and starts empty -- seeding is ProviderRepository's
-        // job on the count == 0 path, deliberately not the migration's. If seeding
-        // ever moves into the migration, this assertion fails and says so.
+        // job, deliberately not the migration's. If seeding ever moves into the
+        // migration, this assertion fails and says so.
         migrated.query("SELECT COUNT(*) FROM providers").use { c ->
             assertTrue(c.moveToFirst())
             assertEquals("providers seeded by the migration", 0, c.getInt(0))
+        }
+        migrated.close()
+    }
+
+    /** v2 -> v3 alone: the ALTER produces exactly the schema Room expects. */
+    @Test
+    fun migrate2To3_matchesExportedSchema() {
+        helper.createDatabase(TEST_DB, 2).close()
+        helper.runMigrationsAndValidate(
+            TEST_DB,
+            3,
+            true,
+            LocalmindDatabase.MIGRATION_2_3,
+        ).close()
+    }
+
+    /**
+     * The whole chain, v1 straight through to v3 -- which is what an installed copy of
+     * v0.0.4 actually runs on upgrade.
+     *
+     * Testing each step in isolation is not sufficient. Room applies migrations in
+     * sequence, and a pair that each validate alone can still fail in series.
+     *
+     * It also asserts the property that matters to someone who already has the app
+     * installed: their rows survive with `model` defaulted to empty, so their providers
+     * stay DIRECT. Nothing is silently repointed at a swap proxy they may not be
+     * running -- which would turn a working app into one that cannot reach a server.
+     */
+    @Test
+    fun migrate1To3_preservesRowsAndLeavesProvidersDirect() {
+        helper.createDatabase(TEST_DB, 1).use { db ->
+            db.execSQL(
+                "INSERT INTO messages (role, content, createdAt) VALUES ('user', 'kept', 1)",
+            )
+        }
+
+        // v1 has no providers table, so the row goes in after the first migration --
+        // exactly the state a v0.0.5 install is in before upgrading.
+        helper.runMigrationsAndValidate(TEST_DB, 2, true, LocalmindDatabase.MIGRATION_1_2)
+            .use { db ->
+                db.execSQL(
+                    "INSERT INTO providers (name, baseUrl, mode, isActive) " +
+                        "VALUES ('LFM2.5 8B', 'http://127.0.0.1:8080', 'direct', 1)",
+                )
+            }
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DB,
+            3,
+            true,
+            LocalmindDatabase.MIGRATION_2_3,
+        )
+
+        migrated.query("SELECT content FROM messages").use { c ->
+            assertEquals("messages after two migrations", 1, c.count)
+            assertTrue(c.moveToFirst())
+            assertEquals("kept", c.getString(0))
+        }
+        migrated.query("SELECT name, baseUrl, model FROM providers").use { c ->
+            assertEquals(1, c.count)
+            assertTrue(c.moveToFirst())
+            assertEquals("LFM2.5 8B", c.getString(0))
+            assertEquals("http://127.0.0.1:8080", c.getString(1))
+            // The entire point of DEFAULT '': an existing provider stays direct.
+            assertEquals("model on an upgraded row", "", c.getString(2))
         }
         migrated.close()
     }

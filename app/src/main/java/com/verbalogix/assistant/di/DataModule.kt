@@ -20,7 +20,10 @@ object DataModule {
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): LocalmindDatabase =
         Room.databaseBuilder(context, LocalmindDatabase::class.java, LocalmindDatabase.NAME)
-            .addMigrations(LocalmindDatabase.MIGRATION_1_2)
+            .addMigrations(
+                LocalmindDatabase.MIGRATION_1_2,
+                LocalmindDatabase.MIGRATION_2_3,
+            )
             // No fallbackToDestructiveMigration. That flag silently wipes the user's
             // conversation when a migration is missing, turning a loud build-time
             // problem into quiet data loss in the field. A missing migration should

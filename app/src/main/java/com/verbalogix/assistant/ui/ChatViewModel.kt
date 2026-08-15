@@ -41,9 +41,22 @@ class ChatViewModel @Inject constructor(
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending.asStateFlow()
 
+    /**
+     * Seconds the current request has been outstanding, or null when idle.
+     *
+     * A swap endpoint starts a model process on first use, and that measures ~35s
+     * before a single token is generated -- OpenCL kernel compilation plus weight
+     * upload. A bare spinner held for 45 seconds is indistinguishable from a hung app,
+     * and the user's correct response to a hung app is to kill it, which wastes the
+     * load that was nearly finished. A ticking number is the difference between
+     * "working" and "broken", and it costs one coroutine.
+     */
+    private val _elapsed = MutableStateFlow<Int?>(null)
+    val elapsed: StateFlow<Int?> = _elapsed.asStateFlow()
+
     init {
         viewModelScope.launch {
-            providers.ensureSeeded()
+            providers.ensureDefaults()
             _provider.value = providers.active()
             refreshStatus()
         }
@@ -70,7 +83,7 @@ class ChatViewModel @Inject constructor(
     fun refreshStatus() {
         viewModelScope.launch {
             val target = _provider.value ?: providers.active().also { _provider.value = it }
-            _status.value = llama.status(target.baseUrl)
+            _status.value = llama.status(target.baseUrl, target.model)
         }
     }
 
@@ -100,7 +113,15 @@ class ChatViewModel @Inject constructor(
             val history = dao.all()
                 .filter { it.role == "user" || it.role == "assistant" }
                 .map { ChatMessage(it.role, it.content) }
-            runCatching { llama.complete(target.baseUrl, history) }
+            val ticker = launch {
+                var n = 0
+                while (true) {
+                    _elapsed.value = n
+                    kotlinx.coroutines.delay(1_000)
+                    n++
+                }
+            }
+            runCatching { llama.complete(target.baseUrl, target.model, history) }
                 .onSuccess { result ->
                     // Reasoning is kept, not discarded. This app's whole stance is
                     // that the machinery is the product -- on a device where you own
@@ -129,7 +150,13 @@ class ChatViewModel @Inject constructor(
                     )
                     _status.value = _status.value.copy(reachable = false)
                 }
+            ticker.cancel()
+            _elapsed.value = null
             _sending.value = false
+            // A swap endpoint has now loaded the model it was asked for, so the strip
+            // should stop saying "idle". Cheap: /v1/models, no load triggered.
+            if (target.isSwap) _status.value = llama.status(target.baseUrl, target.model)
+                .copy(tokensPerSecond = _status.value.tokensPerSecond)
         }
     }
 

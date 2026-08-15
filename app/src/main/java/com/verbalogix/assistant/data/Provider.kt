@@ -48,8 +48,24 @@ data class Provider(
      *              the mode exists so the UI can say which one is answering.
      */
     val mode: String = MODE_DIRECT,
+    /**
+     * The `model` field to send, or empty for none.
+     *
+     * Empty means one server, one model, on its own port -- the baseline, and the only
+     * path proven end to end on a physical device. Non-empty means the endpoint is a
+     * swap proxy that owns process lifecycle: several models behind ONE port, started
+     * on demand by name, with the previous one stopped first.
+     *
+     * That distinction is why this is a column rather than a constant, and it also
+     * decides how status must be read -- see LlamaClient.status(), where getting it
+     * wrong costs the user 41 seconds.
+     */
+    val model: String = "",
     val isActive: Boolean = false,
 ) {
+    /** A swap proxy owns model lifecycle; a plain llama-server does not. */
+    val isSwap: Boolean get() = model.isNotEmpty()
+
     companion object {
         const val MODE_DIRECT = "direct"
         const val MODE_HARNESS = "harness"
@@ -61,11 +77,11 @@ interface ProviderDao {
     @Query("SELECT * FROM providers ORDER BY id")
     fun observeAll(): Flow<List<Provider>>
 
+    @Query("SELECT * FROM providers ORDER BY id")
+    suspend fun all(): List<Provider>
+
     @Query("SELECT * FROM providers WHERE isActive = 1 LIMIT 1")
     suspend fun active(): Provider?
-
-    @Query("SELECT COUNT(*) FROM providers")
-    suspend fun count(): Int
 
     @Insert
     suspend fun insert(provider: Provider): Long

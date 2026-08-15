@@ -35,6 +35,12 @@ data class ChatMessage(val role: String, val content: String)
 @Serializable
 private data class ChatRequest(
     val messages: List<ChatMessage>,
+    // Null for a direct llama-server, which serves exactly one model and needs no
+    // naming. Set for a swap proxy, where this field IS the routing decision: it
+    // selects which llama-server to start, and to stop. Omitted from the JSON when
+    // null (explicitNulls = false) rather than sent as `"model": null`, which some
+    // OpenAI-compatible servers reject outright.
+    val model: String? = null,
     val stream: Boolean = false,
     // 512 was not enough. LFM2.5-8B-A1B is a REASONING model: it writes its thinking
     // into a separate reasoning_content field and only then answers. Measured against
@@ -95,7 +101,23 @@ data class ServerStatus(
     val contextSize: Int? = null,
     val tokensPerSecond: Double? = null,
     val error: String? = null,
+    /**
+     * Whether the selected model is currently resident. Only a swap proxy can answer
+     * this; null means "not applicable", which is the honest value for a direct
+     * server whose model is loaded for as long as the process exists.
+     */
+    val modelLoaded: Boolean? = null,
 )
+
+/** One entry of a swap proxy's /v1/models. */
+@Serializable
+private data class SwapModel(val id: String = "", val status: SwapStatus? = null)
+
+@Serializable
+private data class SwapStatus(val value: String = "")
+
+@Serializable
+private data class SwapModels(val data: List<SwapModel> = emptyList())
 
 @Singleton
 class LlamaClient @Inject constructor() {
@@ -110,7 +132,7 @@ class LlamaClient @Inject constructor() {
             // The server sends fields this app does not model, and adds more between
             // releases. Ignoring unknown keys is what keeps a llama.cpp update from
             // breaking the app.
-            json(Json { ignoreUnknownKeys = true; isLenient = true })
+            json(Json { ignoreUnknownKeys = true; isLenient = true; explicitNulls = false })
         }
         install(HttpTimeout) {
             // Generation on a 1.2B at ~22 tok/s can legitimately take a while; a
@@ -120,15 +142,49 @@ class LlamaClient @Inject constructor() {
         }
     }
 
-    /** Cheap reachability probe. Never throws: absence is a state, not an error. */
-    suspend fun status(baseUrl: String): ServerStatus = runCatching {
+    /**
+     * Cheap reachability probe. Never throws: absence is a state, not an error.
+     *
+     * THE BRANCH HERE IS LOAD-BEARING, and the wrong path costs the user 41 seconds.
+     *
+     * A swap proxy does not serve /props at all -- it returns 404, because it proxies
+     * the OpenAI-compatible surface and not llama.cpp-native paths. It DOES serve
+     * /upstream/<model>/props, and that is the trap: measured, requesting it against
+     * an unloaded model STARTED that model, evicted the other one, took six seconds
+     * and returned an empty body. A status probe must never do that. Opening the app
+     * would trigger a full model load.
+     *
+     * /v1/models is the safe answer: it reports every model and whether each is
+     * resident, costs under a millisecond, and loads nothing.
+     */
+    suspend fun status(baseUrl: String, model: String = ""): ServerStatus =
+        if (model.isEmpty()) statusDirect(baseUrl) else statusSwap(baseUrl, model)
+
+    private suspend fun statusSwap(baseUrl: String, model: String): ServerStatus =
+        runCatching {
+            val models: SwapModels = client.get("$baseUrl/v1/models").body()
+            val entry = models.data.firstOrNull { it.id == model }
+                ?: return ServerStatus(
+                    reachable = false,
+                    error = "proxy is up but does not know the model \"$model\"",
+                )
+            ServerStatus(
+                reachable = true,
+                model = model,
+                modelLoaded = entry.status?.value == "loaded",
+            )
+        }.getOrElse { e -> unreachable(baseUrl, e) }
+
+    private suspend fun statusDirect(baseUrl: String): ServerStatus = runCatching {
         val props: Props = client.get("$baseUrl/props").body()
         ServerStatus(
             reachable = true,
             model = props.model_path?.substringAfterLast('/')?.removeSuffix(".gguf"),
             contextSize = props.settings?.nCtx,
         )
-    }.getOrElse { e ->
+    }.getOrElse { e -> unreachable(baseUrl, e) }
+
+    private fun unreachable(baseUrl: String, e: Throwable): ServerStatus =
         ServerStatus(
             reachable = false,
             error = when (e) {
@@ -136,7 +192,6 @@ class LlamaClient @Inject constructor() {
                 else -> e.message ?: e::class.simpleName ?: "unreachable"
             },
         )
-    }
 
     /** What came back: the answer, the thinking that preceded it, and how fast. */
     data class Completion(
@@ -147,10 +202,10 @@ class LlamaClient @Inject constructor() {
     )
 
     /** Send the conversation, get one reply. Throws on failure so the caller decides. */
-    suspend fun complete(baseUrl: String, history: List<ChatMessage>): Completion {
+    suspend fun complete(baseUrl: String, model: String, history: List<ChatMessage>): Completion {
         val response: ChatResponse = client.post("$baseUrl/v1/chat/completions") {
             contentType(ContentType.Application.Json)
-            setBody(ChatRequest(messages = history))
+            setBody(ChatRequest(messages = history, model = model.ifEmpty { null }))
         }.body()
         val choice = response.choices.firstOrNull() ?: error("server returned no choices")
         val answer = choice.message.content.trim()

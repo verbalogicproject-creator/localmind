@@ -52,7 +52,7 @@ interface MessageDao {
     suspend fun clear()
 }
 
-@Database(entities = [Message::class, Provider::class], version = 2, exportSchema = true)
+@Database(entities = [Message::class, Provider::class], version = 3, exportSchema = true)
 abstract class LocalmindDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun providerDao(): ProviderDao
@@ -65,10 +65,10 @@ abstract class LocalmindDatabase : RoomDatabase() {
          * exists, so an upgrade keeps every message.
          *
          * Purely structural -- it creates the table and inserts nothing. Seeding lives
-         * in one place instead (ProviderRepository.ensureSeeded, on the count == 0
-         * path), because a fresh install never runs a migration at all and would
-         * otherwise need its own seeding code. One path means an upgraded install and
-         * a fresh one cannot drift into different defaults.
+         * in one place instead (ProviderRepository.ensureDefaults), because a fresh
+         * install never runs a migration at all and would otherwise need its own
+         * seeding code. One path means an upgraded install and a fresh one cannot
+         * drift into different defaults.
          *
          * The SQL must match what Room generates for the entity exactly. When it does
          * not, Room throws on first open after upgrade -- which is what MigrationTest
@@ -83,6 +83,25 @@ abstract class LocalmindDatabase : RoomDatabase() {
                         "`baseUrl` TEXT NOT NULL, " +
                         "`mode` TEXT NOT NULL, " +
                         "`isActive` INTEGER NOT NULL)",
+                )
+            }
+        }
+
+        /**
+         * v2 -> v3: `providers.model`, so one endpoint can serve several models.
+         *
+         * A swap proxy (llama-swap) keys on the request's `model` field to decide which
+         * llama-server to start, stopping the previous one first. Empty means the old
+         * behaviour -- one server, one model, its own port -- which stays the baseline.
+         *
+         * DEFAULT '' is what makes this safe on an existing install: every row already
+         * there keeps working exactly as before, unchanged and still direct. Nothing is
+         * migrated onto the proxy behind the user's back.
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "ALTER TABLE `providers` ADD COLUMN `model` TEXT NOT NULL DEFAULT ''",
                 )
             }
         }

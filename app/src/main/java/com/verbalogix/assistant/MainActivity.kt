@@ -34,6 +34,7 @@ class MainActivity : ComponentActivity() {
                 val sending by vm.sending.collectAsStateWithLifecycle()
                 val providers by vm.providerList.collectAsStateWithLifecycle()
                 val provider by vm.provider.collectAsStateWithLifecycle()
+                val elapsed by vm.elapsed.collectAsStateWithLifecycle()
 
                 ChatScreen(
                     messages = messages,
@@ -45,6 +46,7 @@ class MainActivity : ComponentActivity() {
                     providers = providers,
                     provider = provider,
                     onSelectProvider = vm::selectProvider,
+                    elapsed = elapsed,
                 )
             }
         }
