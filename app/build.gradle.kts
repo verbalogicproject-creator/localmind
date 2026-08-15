@@ -295,11 +295,8 @@ android {
         getByName("androidTest") {
             assets.srcDirs(files("$projectDir/schemas"))
         }
-        // The fetched engine. build/ rather than src/, because these are downloaded
-        // artifacts and nothing under src/ should be something a task can recreate.
-        getByName("main") {
-            jniLibs.srcDir(nativeLibsDir)
-        }
+        // The fetched engine is NOT wired here. AGP 9 refuses a Provider in the
+        // SourceSet API -- see the androidComponents block below.
     }
 }
 
@@ -358,10 +355,28 @@ dependencies {
     debugImplementation(libs.androidx.ui.test.manifest)
 }
 
-// Every variant's native packaging depends on the fetch, not just assemble. Wiring it
-// to preBuild alone would leave `bundleRelease` or an androidTest build racing a
-// half-populated directory -- and a missing .so surfaces at RUNTIME as
-// UnsatisfiedLinkError, on a device, rather than as a build failure.
-tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }
-    .configureEach { dependsOn(fetchNativeLibs) }
-tasks.named("preBuild") { dependsOn(fetchNativeLibs) }
+// The fetched engine enters the build HERE, through the Variant API, not through
+// android.sourceSets.
+//
+// AGP 9 refuses a Provider in the SourceSet API outright:
+//
+//     You cannot add Provider instances to the Android SourceSet API.
+//     It is not possible for Android Studio to determine if the Provider points
+//     to a directory that contains generated (read-only) or static (read-write) files.
+//
+// Which is the right complaint. These files ARE generated -- a task downloads them --
+// and saying so through addGeneratedSourceDirectory carries the task dependency
+// automatically, for every variant.
+//
+// That replaced a hand-rolled `tasks.matching { merge*JniLibFolders }.dependsOn(...)`
+// plus a preBuild hook. Both worked by naming internal tasks, which is exactly the
+// kind of wiring that breaks silently on an AGP bump -- and a missing .so does not
+// fail the build, it fails at runtime as UnsatisfiedLinkError on a device. The escape
+// hatch AGP offers (android.sourceset.disallowProvider=false) restores the old
+// behaviour AND warns that task dependencies are not carried, which would reintroduce
+// precisely that failure.
+androidComponents {
+    onVariants { variant ->
+        variant.sources.jniLibs?.addGeneratedSourceDirectory(fetchNativeLibs) { it.outputDir }
+    }
+}
