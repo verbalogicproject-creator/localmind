@@ -1,4 +1,13 @@
+// IMPORTED, NOT FULLY QUALIFIED, and that is not a style preference.
+//
+// Inside a Gradle Kotlin DSL script `java` resolves to the JavaPluginExtension
+// accessor, so `java.net.URI` is parsed as a property access on that extension and
+// fails with "Unresolved reference 'net'" -- an error that names the wrong thing
+// entirely and sends you looking for a missing dependency. Cost one CI round trip.
+import java.net.URI
+import java.security.MessageDigest
 import java.util.Properties
+import java.util.zip.ZipInputStream
 
 plugins {
     alias(libs.plugins.android.application)
@@ -90,8 +99,8 @@ abstract class FetchNativeLibs : DefaultTask() {
             val url = "https://github.com/${repo.get()}/releases/download/native-${tag.get()}/$name"
             logger.lifecycle("fetching $url")
 
-            val bytes = java.net.URI(url).toURL().openStream().use { it.readBytes() }
-            val got = java.security.MessageDigest.getInstance("SHA-256")
+            val bytes = URI(url).toURL().openStream().use { it.readBytes() }
+            val got = MessageDigest.getInstance("SHA-256")
                 .digest(bytes).joinToString("") { "%02x".format(it) }
             if (got != want) {
                 error(
@@ -102,23 +111,32 @@ abstract class FetchNativeLibs : DefaultTask() {
                 )
             }
 
-            java.util.zip.ZipInputStream(bytes.inputStream()).use { zip ->
-                var entry = zip.nextEntry
-                while (entry != null) {
-                    // A zip entry name is attacker-controlled input in the general case.
-                    // Resolving and then checking containment is the standard defence
-                    // against ../ escaping the destination -- cheap, and the digest check
-                    // above is not a substitute, because it only proves the archive is
-                    // the one we published.
+            ZipInputStream(bytes.inputStream()).use { zip ->
+                var next = zip.nextEntry
+                while (next != null) {
+                    // Bound to a val each iteration. `next` is reassigned inside this
+                    // lambda, so Kotlin will not smart-cast it to non-null however many
+                    // times it has been compared against null.
+                    val entry = next
+                    // A zip entry name is attacker-controlled input in the general case,
+                    // so containment is checked before anything is written. The digest
+                    // check above is not a substitute: it proves the archive is the one
+                    // we published, which says nothing about where its paths point.
+                    //
+                    // Path.startsWith, not String.startsWith -- the string form accepts
+                    // /dest-evil as being inside /dest, because it compares characters
+                    // rather than path components.
                     val out = dest.resolve(entry.name).normalize()
-                    require(out.path.startsWith(dest.path)) { "zip entry escapes: ${entry!!.name}" }
+                    require(out.toPath().startsWith(dest.toPath().normalize())) {
+                        "zip entry escapes the destination: ${entry.name}"
+                    }
                     if (entry.isDirectory) {
                         out.mkdirs()
                     } else {
                         out.parentFile.mkdirs()
                         out.outputStream().use { zip.copyTo(it) }
                     }
-                    entry = zip.nextEntry
+                    next = zip.nextEntry
                 }
             }
         }
