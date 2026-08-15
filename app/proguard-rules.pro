@@ -40,3 +40,23 @@
 #
 # LOCAL DELTA: none. The only @Serializable type here (ItemDto) has a default
 # companion and is fully covered by the library's own rules.
+
+# --- Ktor client -----------------------------------------------------------------
+#
+# S6 RECONCILIATION, 2026-08-15.
+# Authority: https://youtrack.jetbrains.com/issue/KTOR-5528
+#
+# R8 fails outright with:
+#   Missing class org.slf4j.impl.StaticLoggerBinder
+#   (referenced from: void org.slf4j.LoggerFactory.bind() and 3 other contexts)
+#
+# Ktor depends on the slf4j API, which looks up a binding implementation by name at
+# runtime. On Android no binding is present -- and none is wanted, since logging goes
+# through Logcat -- but R8 treats the missing class as fatal rather than as the
+# optional dependency it is.
+#
+# Unlike kotlinx.serialization, Ktor does NOT ship consumer rules covering this, so
+# this rule is genuinely required rather than a redundant restatement. That
+# distinction is the reason S6 exists: check whether the library already supplies
+# what you are about to write, and record which case you found.
+-dontwarn org.slf4j.**
