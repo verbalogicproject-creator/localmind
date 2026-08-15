@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -70,16 +71,36 @@ fun ChatScreen(
     providers: List<Provider>,
     provider: Provider?,
     onSelectProvider: (Long) -> Unit,
+    onSaveEndpoint: (Long?, String, String, String) -> Unit,
+    onDeleteEndpoint: (Provider) -> Unit,
+    isDefaultProvider: (Provider) -> Boolean,
     elapsed: Int?,
     think: Boolean,
     onToggleThink: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    // Which endpoint the editor is open on, and whether it is open at all. Two flags
+    // rather than one nullable, because "add" is `open with no target` and collapsing
+    // the two would make it indistinguishable from closed.
+    var editorOpen by remember { mutableStateOf(false) }
+    var editorTarget by remember { mutableStateOf<Provider?>(null) }
+
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize()) {
             StatusStrip(
-                status, onRetryStatus, buildLabel, providers, provider, onSelectProvider,
-                elapsed, think, onToggleThink,
+                status = status,
+                onRetry = onRetryStatus,
+                buildLabel = buildLabel,
+                providers = providers,
+                provider = provider,
+                onSelectProvider = onSelectProvider,
+                onEditEndpoint = { target ->
+                    editorTarget = target
+                    editorOpen = true
+                },
+                elapsed = elapsed,
+                think = think,
+                onToggleThink = onToggleThink,
             )
 
             val listState = rememberLazyListState()
@@ -89,17 +110,120 @@ fun ChatScreen(
                 if (messages.isNotEmpty()) listState.animateScrollToItem(messages.lastIndex)
             }
 
-            LazyColumn(
-                state = listState,
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
-            ) {
-                items(messages, key = { it.id }) { message -> MessageRow(message) }
+            if (messages.isEmpty()) {
+                EmptyTranscript(
+                    status = status,
+                    provider = provider,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    onAddEndpoint = {
+                        editorTarget = null
+                        editorOpen = true
+                    },
+                )
+            } else {
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(24.dp),
+                ) {
+                    items(messages, key = { it.id }) { message -> MessageRow(message) }
+                }
             }
 
             Composer(sending = sending, onSend = onSend)
         }
+    }
+
+    if (editorOpen) {
+        val target = editorTarget
+        EndpointDialog(
+            editing = target,
+            canDelete = target != null && !isDefaultProvider(target),
+            onDismiss = { editorOpen = false },
+            onSave = { id, name, url, model ->
+                editorOpen = false
+                onSaveEndpoint(id, name, url, model)
+            },
+            onDelete = {
+                editorOpen = false
+                target?.let(onDeleteEndpoint)
+            },
+        )
+    }
+}
+
+/**
+ * What the app says before it has been used — and, on a device that is not the build
+ * author's, what it says forever unless this screen explains the way out.
+ *
+ * Every seeded endpoint points at 127.0.0.1:8090, which is llama-swap running in
+ * Termux on THIS phone. That is right for the machine this was built on and wrong for
+ * every other one, where the status strip reads "unreachable" and nothing suggests
+ * that a remedy exists. An empty transcript is the one moment where there is room to
+ * say so, so it says the specific thing — which address is silent — rather than a
+ * generic welcome.
+ */
+@Composable
+private fun EmptyTranscript(
+    status: ServerStatus,
+    provider: Provider?,
+    onAddEndpoint: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier.padding(horizontal = 24.dp),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.Start,
+    ) {
+        if (status.reachable) {
+            Text(
+                "Ready.",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onSurface,
+            )
+            Spacer(Modifier.size(8.dp))
+            Text(
+                "Everything you type stays on this device. Ask it something.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@Column
+        }
+
+        Text(
+            "No server at ${provider?.baseUrl?.removePrefix("http://") ?: "the configured endpoint"}",
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+        Spacer(Modifier.size(12.dp))
+        Text(
+            "Localmind is a client. It needs an OpenAI-compatible server — llama.cpp, " +
+                "llama-swap, vLLM or Ollama — and it does not bundle one.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.size(16.dp))
+        Text(
+            "On this device: run llama-server in Termux on port 8090, then tap retry " +
+                "in the strip above. Nothing leaves the phone.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.size(12.dp))
+        Text(
+            "Somewhere else: add its address. It must be https — Android blocks plain " +
+                "http to anything but this device.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.size(16.dp))
+        Text(
+            "Add endpoint",
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.clickable(onClick = onAddEndpoint),
+        )
     }
 }
 
@@ -115,6 +239,7 @@ private fun StatusStrip(
     providers: List<Provider>,
     provider: Provider?,
     onSelectProvider: (Long) -> Unit,
+    onEditEndpoint: (Provider?) -> Unit,
     elapsed: Int?,
     think: Boolean,
     onToggleThink: () -> Unit,
@@ -197,7 +322,7 @@ private fun StatusStrip(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ProviderPicker(providers, provider, onSelectProvider)
+                ProviderPicker(providers, provider, onSelectProvider, onEditEndpoint)
                 Spacer(Modifier.width(12.dp))
                 // Sits next to the provider because it is the same kind of decision:
                 // which machine answers, and how hard it works before it does.
@@ -241,16 +366,19 @@ private fun ProviderPicker(
     providers: List<Provider>,
     current: Provider?,
     onSelect: (Long) -> Unit,
+    onEdit: (Provider?) -> Unit,
 ) {
     var expanded by remember { mutableStateOf(false) }
-    // One configured endpoint is not a choice, so it renders as a plain label. A menu
-    // that opens to a single item is a control that does nothing.
-    val switchable = providers.size > 1
+    // The menu used to be suppressed at one entry, on the reasoning that a menu opening
+    // to a single item is a control that does nothing. That stopped being true when Add
+    // and Edit moved into it: it is no longer only a chooser, and it is now the ONLY
+    // route to an endpoint this build did not seed -- which, on any device but the
+    // author's, is every endpoint that would actually answer.
 
     Box {
         Row(
             modifier = Modifier
-                .then(if (switchable) Modifier.clickable { expanded = true } else Modifier)
+                .clickable { expanded = true }
                 .padding(vertical = 2.dp),
             horizontalArrangement = Arrangement.spacedBy(4.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -258,21 +386,15 @@ private fun ProviderPicker(
             Text(
                 current?.name ?: "no provider",
                 style = MaterialTheme.typography.labelSmall,
-                color = if (switchable) {
-                    MaterialTheme.colorScheme.primary
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
+                color = MaterialTheme.colorScheme.primary,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (switchable) {
-                Text(
-                    "▾",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-            }
+            Text(
+                "▾",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+            )
         }
 
         DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
@@ -308,6 +430,28 @@ private fun ProviderPicker(
                     },
                 )
             }
+
+            HorizontalDivider()
+
+            // Edit acts on the CURRENT endpoint, not on a long-pressed row. A long-press
+            // affordance inside a dropdown is undiscoverable, and the endpoint someone
+            // wants to correct is essentially always the one that just failed.
+            if (current != null) {
+                DropdownMenuItem(
+                    onClick = {
+                        expanded = false
+                        onEdit(current)
+                    },
+                    text = { Text("Edit ${current.name}", style = MaterialTheme.typography.bodyMedium) },
+                )
+            }
+            DropdownMenuItem(
+                onClick = {
+                    expanded = false
+                    onEdit(null)
+                },
+                text = { Text("Add endpoint…", style = MaterialTheme.typography.bodyMedium) },
+            )
         }
     }
 }
@@ -561,6 +705,9 @@ private fun ChatScreenPreview() {
             providers = previewProviders,
             provider = previewProviders.first(),
             onSelectProvider = {},
+            onSaveEndpoint = { _, _, _, _ -> },
+            onDeleteEndpoint = {},
+            isDefaultProvider = { true },
             elapsed = null,
             think = false,
             onToggleThink = {},
@@ -582,6 +729,9 @@ private fun ChatScreenOfflinePreview() {
             providers = previewProviders,
             provider = previewProviders.first(),
             onSelectProvider = {},
+            onSaveEndpoint = { _, _, _, _ -> },
+            onDeleteEndpoint = {},
+            isDefaultProvider = { true },
             elapsed = null,
             think = false,
             onToggleThink = {},

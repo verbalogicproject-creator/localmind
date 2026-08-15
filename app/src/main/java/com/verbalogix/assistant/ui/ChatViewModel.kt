@@ -107,6 +107,34 @@ class ChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * Add or edit an endpoint. [id] null means add.
+     *
+     * The saved endpoint becomes current and is probed immediately. Someone who has
+     * just typed an address is asking one question — does it answer — and making them
+     * find the picker and switch before they can learn that is a step with no purpose.
+     */
+    fun saveEndpoint(id: Long?, name: String, baseUrl: String, model: String) {
+        viewModelScope.launch {
+            providers.saveEndpoint(id, name, baseUrl, model)
+            _provider.value = providers.active()
+            _status.value = ServerStatus(reachable = false)
+            refreshStatus()
+        }
+    }
+
+    fun deleteEndpoint(provider: Provider) {
+        viewModelScope.launch {
+            providers.remove(provider)
+            _provider.value = providers.active()
+            _status.value = ServerStatus(reachable = false)
+            refreshStatus()
+        }
+    }
+
+    /** Seeded providers cannot be deleted — [ProviderRepository.isDefault] says why. */
+    fun isDefault(provider: Provider): Boolean = providers.isDefault(provider)
+
     fun send(text: String) {
         val prompt = text.trim()
         if (prompt.isEmpty() || _sending.value) return

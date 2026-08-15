@@ -162,6 +162,79 @@ class ProviderRepository @Inject constructor(
         dao.setActive(id)
     }
 
+    /**
+     * Whether this row is one this build seeds — which is exactly the set that must
+     * not be deletable.
+     *
+     * [ensureDefaults] reinserts any default whose (baseUrl, model) pair is absent, so
+     * deleting one removes it until the next launch and then it is back. That is a
+     * worse experience than having no delete at all, because the user is told the
+     * action worked. Removing a default needs a tombstone, and a tombstone needs a
+     * schema version; a user-added endpoint needs neither, because nothing reseeds it.
+     *
+     * Keyed on the pair rather than the id, for the same reason the seeding is: ids are
+     * assigned by insertion order and differ between a fresh install and an upgraded one.
+     */
+    fun isDefault(provider: Provider): Boolean =
+        defaults.any { it.baseUrl == provider.baseUrl && it.model == provider.model }
+
+    /**
+     * Add or update an endpoint the user typed, and make it current.
+     *
+     * Selecting it is not a convenience: someone who has just finished typing an
+     * address wants to use it, and leaving the previous provider active means the next
+     * message goes somewhere else and appears to prove the new endpoint broken.
+     *
+     * The caller passes an already-normalised URL. Validation belongs to [EndpointUrl]
+     * so the dialog can explain a rejection while the text is still on screen, rather
+     * than storing something that fails later at the socket.
+     */
+    suspend fun saveEndpoint(id: Long?, name: String, baseUrl: String, model: String) {
+        val label = name.trim().ifEmpty { baseUrl.substringAfter("://") }
+        val cleanModel = model.trim()
+        db.withTransaction {
+            // Adding an endpoint that already exists selects it instead of inserting a
+            // twin. Without this, typing the seeded address by hand produces a second
+            // row that isDefault() then reports as seeded -- so it cannot be deleted,
+            // and the picker shows the same endpoint twice forever.
+            val duplicate = if (id == null) {
+                dao.all().firstOrNull { it.baseUrl == baseUrl && it.model == cleanModel }
+            } else {
+                null
+            }
+            val newId = if (duplicate != null) {
+                duplicate.id
+            } else if (id == null) {
+                dao.insert(Provider(name = label, baseUrl = baseUrl, model = cleanModel))
+            } else {
+                val existing = dao.all().firstOrNull { it.id == id } ?: return@withTransaction
+                dao.update(
+                    existing.copy(name = label, baseUrl = baseUrl, model = cleanModel),
+                )
+                id
+            }
+            dao.clearActive()
+            dao.setActive(newId)
+        }
+    }
+
+    /**
+     * Remove a user-added endpoint. Refuses a default rather than silently doing
+     * nothing, because a delete that reports success and reverses itself on next launch
+     * is the failure this guard exists to prevent.
+     */
+    suspend fun remove(provider: Provider) {
+        require(!isDefault(provider)) { "a seeded provider cannot be deleted; it would be reseeded" }
+        db.withTransaction {
+            dao.delete(provider)
+            // Deleting the active row leaves nothing selected and the app pointed at a
+            // fallback it never chose. Same re-election as ensureDefaults.
+            if (dao.active() == null) {
+                dao.all().firstOrNull()?.let { dao.setActive(it.id) }
+            }
+        }
+    }
+
     private companion object {
         const val SWAP_URL = "http://127.0.0.1:8090"
         const val MOCK_HARNESS_URL = "http://127.0.0.1:8091"
