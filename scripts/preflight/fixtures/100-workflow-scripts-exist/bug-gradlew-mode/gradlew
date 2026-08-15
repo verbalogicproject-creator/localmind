@@ -1,0 +1,3 @@
+#!/bin/sh
+# fixture placeholder for the real Gradle wrapper launcher
+exit 0
