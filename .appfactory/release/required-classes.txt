@@ -2,16 +2,26 @@
 #
 # One class per line. verify_mapping.py asserts each is PRESENT in mapping.txt --
 # a keep rule cannot preserve a class R8 deleted for being unreachable.
-
-# The JNI counterpart of libai-chat.so.
 #
-# JNI resolves native methods by SYMBOL NAME, and libai-chat.so exports
-# Java_com_arm_aichat_internal_InferenceEngineImpl_* -- baked in at C++ compile time.
-# If R8 renames this class or shrinks it away, the symbols stop matching and the
-# engine fails to bind, as an UnsatisfiedLinkError at runtime in the release build
-# only. Debug builds are unminified, so every cheap rung stays green.
+# ── com.arm.aichat.internal.InferenceEngineImpl ────────────────────────────────
 #
-# AGP's proguard-android-optimize.txt does keep classes with native methods, so this
-# is a guard rather than the mechanism. That is the point: it fails if that default
-# ever changes, instead of the app failing on a user's phone.
-com.arm.aichat.internal.InferenceEngineImpl
+# NOT LISTED YET, DELIBERATELY, and this note is the reminder to add it.
+#
+# It was listed, and CI refused it:
+#
+#     com.arm.aichat.internal.InferenceEngineImpl: REQUIRED but absent from the
+#     release build -- R8 shrank it away as unused, so any claim about minifying
+#     it is vacuous
+#
+# Which is correct. The vendored engine bindings are currently dead code: nothing
+# in the app calls them until EmbeddedProvider exists, so R8 removes them, and an
+# assertion that they survived minification would be asserting something false. A
+# guard written before the thing it guards is a guard that reports on nothing.
+#
+# ADD THE LINE IN THE SAME COMMIT THAT MAKES THE ENGINE LIVE. From that point it is
+# load-bearing: JNI resolves native methods by symbol name, libai-chat.so exports
+# Java_com_arm_aichat_internal_InferenceEngineImpl_*, and a rename or removal by R8
+# becomes an UnsatisfiedLinkError in the RELEASE build only -- invisible to every
+# cheap rung, because debug builds are unminified.
+#
+#     com.arm.aichat.internal.InferenceEngineImpl
