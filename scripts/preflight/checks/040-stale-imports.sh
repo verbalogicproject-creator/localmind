@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Imports of the project's own package point at symbols that still exist.
+. "$(dirname "${BASH_SOURCE[0]}")/../lib.sh"
+
+meta() {
+    ID="040-stale-imports"
+    TITLE="internal imports resolve to a declaration"
+    CATCHES="An import left behind when a class is deleted or renamed. Compiles
+nowhere and fails the whole build; the incident here was a stale GeminiApiClient
+import surviving a refactor.
+
+Scans test/ and androidTest/ as well as main/, because './gradlew build' compiles
+unit tests and a stale import there fails the build exactly like one in main. That
+distinction cost a CI round trip: an integration test referencing a deleted symbol
+blocked every build while nobody was looking at test sources."
+    SCOPE="any"
+}
+meta
+ROOT="$(af_root "${1:-}")"
+
+mapfile -t SRC < <(af_src_dirs "$ROOT")
+[ ${#SRC[@]} -gt 0 ] || { pass "$TITLE (no sources)"; af_exit; }
+
+# The app's own package prefix, from the namespace or applicationId.
+APP_BUILD="$ROOT/app/build.gradle.kts"
+[ -f "$APP_BUILD" ] || APP_BUILD="$ROOT/app/build.gradle"
+PKG=$(grep -oE 'namespace\s*=\s*"[^"]+"' "$APP_BUILD" 2>/dev/null | head -1 | sed 's/.*"\(.*\)"/\1/')
+[ -n "$PKG" ] || { pass "$TITLE (no namespace declared)"; af_exit; }
+
+missing=0
+while IFS= read -r sym; do
+    [ -z "$sym" ] && continue
+    cls="${sym##*.}"
+    # A declaration of that simple name anywhere in the project's sources.
+    if ! grep -rqE "^\s*(public |internal |private |abstract |open |sealed |data )*(class|interface|object|enum class|typealias|fun) +$cls\b" \
+           "${SRC[@]}" 2>/dev/null; then
+        fail "import $sym refers to a symbol with no declaration in this project"
+        missing=1
+    fi
+done < <(
+    grep -rhoE "^import +${PKG//./\\.}\.[A-Za-z0-9_.]+" "${SRC[@]}" 2>/dev/null \
+        | sed 's/^import  *//' \
+        | grep -vE '\.\*$' \
+        | sort -u
+)
+
+[ "$missing" -eq 0 ] && pass "$TITLE"
+af_exit

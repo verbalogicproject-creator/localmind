@@ -50,7 +50,7 @@ private val LightColors = lightColorScheme(
     error = Color(0xFFB31B2B),
 )
 
-private val ConformanceTypography = Typography(
+private val LocalmindTypography = Typography(
     headlineMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.Bold, fontSize = 24.sp),
     titleMedium = TextStyle(fontFamily = Sans, fontWeight = FontWeight.SemiBold, fontSize = 16.sp),
     bodyMedium = TextStyle(fontFamily = Sans, fontSize = 14.sp),
@@ -66,7 +66,7 @@ fun LocalmindTheme(
 ) {
     MaterialTheme(
         colorScheme = if (darkTheme) DarkColors else LightColors,
-        typography = ConformanceTypography,
+        typography = LocalmindTypography,
         content = content,
     )
 }
