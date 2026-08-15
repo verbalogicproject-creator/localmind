@@ -40,6 +40,8 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
+import com.verbalogix.assistant.data.Citation
+import com.verbalogix.assistant.data.CitationCodec
 import com.verbalogix.assistant.data.Message
 import com.verbalogix.assistant.data.Provider
 import com.verbalogix.assistant.data.ServerStatus
@@ -394,18 +396,87 @@ private fun MessageRow(message: Message) {
                     .clickable { expanded = true },
             )
         } else {
-            Text(
-                text = message.content,
-                style = MaterialTheme.typography.bodyMedium,
-                color = when (message.role) {
-                    "error" -> MaterialTheme.colorScheme.error
-                    // Dimmed: present and readable, but visibly not the answer.
-                    "thinking" -> MaterialTheme.colorScheme.onSurfaceVariant
-                    else -> MaterialTheme.colorScheme.onBackground
-                },
+            Column(
                 modifier = Modifier
                     .weight(1f)
                     .then(if (isThinking) Modifier.clickable { expanded = false } else Modifier),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Text(
+                    text = message.content,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = when (message.role) {
+                        "error" -> MaterialTheme.colorScheme.error
+                        // Dimmed: present and readable, but visibly not the answer.
+                        "thinking" -> MaterialTheme.colorScheme.onSurfaceVariant
+                        else -> MaterialTheme.colorScheme.onBackground
+                    },
+                )
+                // Grounding is rendered only where it was actually reported. A direct
+                // server has no retrieval and therefore no opinion, so it shows
+                // nothing -- rather than an absence that would read as "not grounded".
+                message.grounded?.let { Grounding(it, CitationCodec.decode(message.citations)) }
+            }
+        }
+    }
+}
+
+/**
+ * Where an answer came from, or the fact that it came from nowhere.
+ *
+ * THE UNGROUNDED CASE IS THE REASON THIS EXISTS. An answer with no evidence behind it
+ * must not look like one with evidence: rendered identically, a confident guess becomes
+ * indistinguishable from a cited fact, which is the most damaging thing this interface
+ * could do. So ungrounded gets the error colour and says so in words, and it is the
+ * branch written first rather than the fallback.
+ */
+@Composable
+private fun Grounding(grounded: Boolean, citations: List<Citation>) {
+    if (!grounded) {
+        Text(
+            "not grounded \u2014 no supporting passage was found",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+        return
+    }
+
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        citations.forEach { c ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(
+                    "[${c.n}]",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+                Column {
+                    // Source first, quote second. The question a reader has is "can I
+                    // check this?", and the answer is the document and page.
+                    Text(
+                        buildString {
+                            append(c.document)
+                            c.page?.let { append("  p$it") }
+                        },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    if (c.quote.isNotBlank()) {
+                        Text(
+                            "\u201c${c.quote}\u201d",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+        if (citations.isEmpty()) {
+            // Grounded but citing nothing is a contract violation, not a display
+            // state. Saying so is more useful than rendering a confident bare answer.
+            Text(
+                "grounded, but the Harness returned no citations",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.error,
             )
         }
     }

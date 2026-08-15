@@ -3,6 +3,7 @@ package com.verbalogix.assistant.ui
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.verbalogix.assistant.data.ChatMessage
+import com.verbalogix.assistant.data.CitationCodec
 import com.verbalogix.assistant.data.LlamaClient
 import com.verbalogix.assistant.data.Message
 import com.verbalogix.assistant.data.MessageDao
@@ -151,7 +152,29 @@ class ChatViewModel @Inject constructor(
                             Message(role = "thinking", content = result.reasoning, createdAt = now()),
                         )
                     }
-                    dao.insert(Message(role = "assistant", content = result.answer, createdAt = now()))
+                    // An answer carries its evidence into storage with it. Persisting
+                    // the citations is the difference between a claim you can check
+                    // tomorrow and one you had to trust when it scrolled past.
+                    //
+                    // A MISSING receipt from a harness provider is recorded as
+                    // grounded = false rather than null. Null means "no retrieval ran",
+                    // which is true of a direct server and a lie about a Harness that
+                    // failed to say. The contract requires the field; treating its
+                    // absence as ungrounded surfaces the bug instead of hiding it.
+                    val grounded = when {
+                        result.receipt != null -> result.receipt.grounded
+                        target.mode == Provider.MODE_HARNESS -> false
+                        else -> null
+                    }
+                    dao.insert(
+                        Message(
+                            role = "assistant",
+                            content = result.answer,
+                            createdAt = now(),
+                            citations = CitationCodec.encode(result.citations),
+                            grounded = grounded,
+                        ),
+                    )
                     _status.value = _status.value.copy(
                         reachable = true,
                         tokensPerSecond = result.tokensPerSecond ?: _status.value.tokensPerSecond,

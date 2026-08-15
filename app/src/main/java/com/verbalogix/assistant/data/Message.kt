@@ -40,6 +40,20 @@ data class Message(
     val role: String,
     val content: String,
     val createdAt: Long,
+    /**
+     * Citations as JSON, or null. Nullable rather than defaulted to "" because null
+     * means "this message never had any" while an empty list would claim retrieval ran
+     * and returned nothing -- a distinction the UI must be able to make.
+     */
+    val citations: String? = null,
+    /**
+     * Whether the Harness reported this answer as grounded. Null means the question was
+     * never asked: a direct llama.cpp server has no retrieval, so it has no opinion.
+     *
+     * Three states, not two, and the third is the important one -- "not applicable" must
+     * not render as "not grounded", or every direct answer would look suspect.
+     */
+    val grounded: Boolean? = null,
 )
 
 @Dao
@@ -58,7 +72,7 @@ interface MessageDao {
     suspend fun clear()
 }
 
-@Database(entities = [Message::class, Provider::class], version = 3, exportSchema = true)
+@Database(entities = [Message::class, Provider::class], version = 4, exportSchema = true)
 abstract class LocalmindDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
     abstract fun providerDao(): ProviderDao
@@ -109,6 +123,25 @@ abstract class LocalmindDatabase : RoomDatabase() {
                 db.execSQL(
                     "ALTER TABLE `providers` ADD COLUMN `model` TEXT NOT NULL DEFAULT ''",
                 )
+            }
+        }
+
+        /**
+         * v3 -> v4: grounding. `messages.citations` and `messages.grounded`.
+         *
+         * Both are NULLABLE and therefore need no DEFAULT -- SQLite only demands one
+         * when adding a NOT NULL column to a populated table. That is not a shortcut:
+         * null is the honest value for every message written before this existed, and
+         * for every answer from a direct server that has no retrieval to report.
+         *
+         * Check 130 compares these fragments against Room's own generated DDL, so a
+         * mismatch between what the migration builds and what Room expects fails in two
+         * seconds rather than on a user's first upgrade.
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `messages` ADD COLUMN `citations` TEXT")
+                db.execSQL("ALTER TABLE `messages` ADD COLUMN `grounded` INTEGER")
             }
         }
     }

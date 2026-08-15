@@ -119,6 +119,10 @@ private data class ChatResponse(
     val choices: List<Choice> = emptyList(),
     val model: String? = null,
     val timings: Timings? = null,
+    // Additive Harness fields. A direct llama.cpp server omits both, which is why the
+    // same parser serves both transports -- see contracts/harness-v0.md.
+    val citations: List<Citation> = emptyList(),
+    val receipt: Receipt? = null,
 )
 
 @Serializable
@@ -235,6 +239,9 @@ class LlamaClient @Inject constructor() {
         val reasoning: String,
         val truncated: Boolean,
         val tokensPerSecond: Double?,
+        val citations: List<Citation> = emptyList(),
+        /** Null from a direct server: no retrieval ran, so there is nothing to report. */
+        val receipt: Receipt? = null,
     )
 
     /** Send the conversation, get one reply. Throws on failure so the caller decides. */
@@ -277,7 +284,14 @@ class LlamaClient @Inject constructor() {
         }
         if (answer.isEmpty()) error("the model returned an empty answer")
 
-        return Completion(answer, reasoning, truncated, response.timings?.predictedPerSecond)
+        return Completion(
+            answer = answer,
+            reasoning = reasoning,
+            truncated = truncated,
+            tokensPerSecond = response.timings?.predictedPerSecond,
+            citations = response.citations,
+            receipt = response.receipt,
+        )
     }
 
 }

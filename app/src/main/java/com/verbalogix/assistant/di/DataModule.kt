@@ -23,6 +23,7 @@ object DataModule {
             .addMigrations(
                 LocalmindDatabase.MIGRATION_1_2,
                 LocalmindDatabase.MIGRATION_2_3,
+                LocalmindDatabase.MIGRATION_3_4,
             )
             // No fallbackToDestructiveMigration. That flag silently wipes the user's
             // conversation when a migration is missing, turning a loud build-time

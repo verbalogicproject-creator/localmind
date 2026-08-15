@@ -1,6 +1,7 @@
 package com.verbalogix.assistant.data
 
 import androidx.room.withTransaction
+import com.verbalogix.assistant.BuildConfig
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.flow.Flow
@@ -71,6 +72,28 @@ class ProviderRepository @Inject constructor(
         Provider(name = "LFM2.5 8B", baseUrl = SWAP_URL, model = "lfm-8b", isActive = true),
         Provider(name = "Qwen3.5 4B", baseUrl = SWAP_URL, model = "qwen-4b"),
         Provider(name = "Bonsai 8B \u00b7 1-bit", baseUrl = SWAP_URL, model = "bonsai-8b"),
+    ) + if (BuildConfig.DEBUG) mockHarness else emptyList()
+
+    /**
+     * The mock Harness, seeded in DEBUG BUILDS ONLY.
+     *
+     * The Foundry side is explicit that Localmind may implement the mock Harness
+     * provider now, and must NOT advertise expert-pack support in any user-visible
+     * surface until Stage 3 (Harness / mount / retrieval) closes. Stage 1 F7 is closed;
+     * Stage 2 .kpack construction and Stage 3 integration are not.
+     *
+     * Gating on BuildConfig.DEBUG satisfies both: the path is built and testable
+     * against contracts/mock/harness_mock.py today, and a release build offers nothing
+     * that implies working expert packs. Deleting a line later is not required -- the
+     * gate simply flips when there is something real behind it.
+     */
+    private val mockHarness = listOf(
+        Provider(
+            name = "Handbook (mock)",
+            baseUrl = MOCK_HARNESS_URL,
+            mode = Provider.MODE_HARNESS,
+            model = "handbook-2026",
+        ),
     )
 
     /**
@@ -141,5 +164,6 @@ class ProviderRepository @Inject constructor(
 
     private companion object {
         const val SWAP_URL = "http://127.0.0.1:8090"
+        const val MOCK_HARNESS_URL = "http://127.0.0.1:8091"
     }
 }
