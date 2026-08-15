@@ -1,0 +1,17 @@
+# Classes that must survive R8, beyond the ones named in AndroidManifest.xml.
+#
+# One class per line. verify_mapping.py asserts each is PRESENT in mapping.txt --
+# a keep rule cannot preserve a class R8 deleted for being unreachable.
+
+# The JNI counterpart of libai-chat.so.
+#
+# JNI resolves native methods by SYMBOL NAME, and libai-chat.so exports
+# Java_com_arm_aichat_internal_InferenceEngineImpl_* -- baked in at C++ compile time.
+# If R8 renames this class or shrinks it away, the symbols stop matching and the
+# engine fails to bind, as an UnsatisfiedLinkError at runtime in the release build
+# only. Debug builds are unminified, so every cheap rung stays green.
+#
+# AGP's proguard-android-optimize.txt does keep classes with native methods, so this
+# is a guard rather than the mechanism. That is the point: it fails if that default
+# ever changes, instead of the app failing on a user's phone.
+com.arm.aichat.internal.InferenceEngineImpl
