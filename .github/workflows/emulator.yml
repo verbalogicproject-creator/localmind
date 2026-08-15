@@ -13,12 +13,25 @@ name: emulator
 # on tags, and on demand.
 
 on:
+  # TAGS AND SCHEDULE ONLY -- deliberately NOT every push to main.
+  #
+  # Measured: this rung averages 531s against ci.yml's 184s. Running it on every
+  # commit means waiting ~9 minutes to learn you are clean, and the inner loop stops
+  # being used when it costs that much.
+  #
+  # Quality is not reduced by this, and the reason is precise: NOTHING SHIPS WITHOUT
+  # A TAG, and tags run the full ladder. The gate belongs on what ships, not on every
+  # commit. This rung answers "does the release artifact launch" -- a mid-feature
+  # commit is not a release artifact.
+  #
+  # The weekly schedule is the version-rot canary: AGP, Kotlin, KSP and Compose form
+  # a tight compatibility lattice and the runner images move underneath all of them.
+  # A project that built fine in August fails in February, and this is how that gets
+  # discovered here rather than by a user.
   push:
-    branches: [main]
     tags: ['v*']
-    # Docs-only changes cannot break a launch. (Ignored for tag pushes, which is
-    # correct -- a release is verified regardless of what changed.)
-    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+  schedule:
+    - cron: '17 4 * * 1'
   workflow_dispatch:
 
 concurrency:
