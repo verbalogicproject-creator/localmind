@@ -2,19 +2,34 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- Loopback is still the network stack. Without this, socket() fails with EPERM
+         and the app reports "Operation not permitted", which names the syscall rather
+         than the missing permission and reads like a server problem. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Runtime-requestable from API 33. The app states an explicit behaviour on
+         denial rather than assuming it was granted. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
     <!-- android:name MUST point at the @HiltAndroidApp class. The annotation on a
          class the system never instantiates produces the identical launch crash as
          having no annotation at all, and looks correct in the source.
 
-         Note: XML comments may not contain a double hyphen. Writing one is a parse
-         error, not a style problem, and it is easy to introduce by carrying an
-         em-dash habit over from shell or Kotlin. Preflight check 070 catches it. -->
+         android:networkSecurityConfig is what activates res/xml/network_security_config.
+         Declaring that file does nothing on its own: cleartext is blocked by default
+         from API 28, which is this app's minSdk, so without this attribute every
+         request to 127.0.0.1 fails.
+
+         Note: XML comments may not contain a double hyphen, and a comment may not sit
+         INSIDE a tag's attribute list. Both are parse errors rather than style
+         problems, and preflight check 070 catches them in two seconds. -->
     <application
         android:name=".Localmind"
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="@string/app_name"
+        android:networkSecurityConfig="@xml/network_security_config"
         android:supportsRtl="true"
         android:theme="@style/Theme.Localmind"
         tools:targetApi="34">
