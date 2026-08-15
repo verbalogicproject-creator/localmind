@@ -3,8 +3,11 @@ package com.verbalogix.assistant
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
 import androidx.hilt.navigation.compose.hiltViewModel
-import com.verbalogix.assistant.ui.HomeScreen
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.verbalogix.assistant.ui.ChatScreen
+import com.verbalogix.assistant.ui.ChatViewModel
 import com.verbalogix.assistant.ui.theme.LocalmindTheme
 import dagger.hilt.android.AndroidEntryPoint
 
@@ -25,10 +28,18 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         setContent {
             LocalmindTheme {
-                HomeScreen(
-                    versionName = BuildConfig.VERSION_NAME,
-                    versionCode = BuildConfig.VERSION_CODE,
-                    gitSha = BuildConfig.GIT_SHA,
+                val vm: ChatViewModel = hiltViewModel()
+                val messages by vm.messages.collectAsStateWithLifecycle()
+                val status by vm.status.collectAsStateWithLifecycle()
+                val sending by vm.sending.collectAsStateWithLifecycle()
+
+                ChatScreen(
+                    messages = messages,
+                    status = status,
+                    sending = sending,
+                    onSend = vm::send,
+                    onRetryStatus = vm::refreshStatus,
+                    buildLabel = "v${BuildConfig.VERSION_NAME} · ${BuildConfig.GIT_SHA}",
                 )
             }
         }

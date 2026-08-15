@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Cleartext HTTP is blocked by default from API 28, which is this app's minSdk.
+     Without this file the app cannot reach llama-server at all, and the failure is a
+     plain connection error that names nothing about the policy causing it.
+
+     Scoped to loopback ONLY. The whole point of this app is that nothing leaves the
+     device, so a blanket cleartextTrafficPermitted would contradict the product as
+     well as being careless. 127.0.0.1 is where Termux serves; localhost is the same
+     address by another name, and both are listed because either may be typed into
+     the endpoint setting later. -->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">127.0.0.1</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

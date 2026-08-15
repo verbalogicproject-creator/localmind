@@ -21,6 +21,9 @@ hilt = "2.51.1"
 hiltNavCompose = "1.2.0"
 room = "2.6.1"
 serialization = "1.6.3"
+# Ktor CLIENT. The app talks to llama-server over loopback; it is not a server itself.
+# CIO engine: coroutine-native, no thread-per-connection, which matters on a phone.
+ktor = "2.3.11"
 
 junit = "4.13.2"
 androidxJunit = "1.1.5"
@@ -56,6 +59,11 @@ room-testing = { group = "androidx.room", name = "room-testing", version.ref = "
 # Explicit. ColdForge got this transitively via ktor-serialization and would have
 # broken the moment ktor was dropped.
 kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "serialization" }
+
+ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
+ktor-client-cio = { group = "io.ktor", name = "ktor-client-cio", version.ref = "ktor" }
+ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }
+ktor-serialization-kotlinx-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
 
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "androidxJunit" }
