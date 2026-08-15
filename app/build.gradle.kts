@@ -264,6 +264,31 @@ android {
 
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+
+        // THE NATIVE LIBRARIES MUST BE EXTRACTED TO DISK. Not a size preference --
+        // llama.cpp cannot find its CPU backends otherwise.
+        //
+        // AGP defaults useLegacyPackaging to false when minSdk >= 23: the .so files are
+        // stored uncompressed inside the APK and mapped directly, never unpacked. That
+        // is normally better -- no duplicate copy on disk, faster installs -- and
+        // System.loadLibrary works either way.
+        //
+        // It breaks this app specifically. GGML_BACKEND_DL builds each CPU variant as
+        // its own .so, and upstream's JNI locates them by SCANNING A DIRECTORY:
+        //
+        //     Java_..._InferenceEngineImpl_init(JNIEnv*, jobject, jstring nativeLibDir)
+        //         ggml_backend_load_all_from_path(path_to_backend);
+        //
+        // With libraries unextracted, applicationInfo.nativeLibraryDir exists and is
+        // EMPTY. The scan finds nothing, no CPU backend registers, and the engine has
+        // nothing to run on -- after loadLibrary succeeded, which is what makes it hard
+        // to diagnose. The instrumented test caught it on its first run by asserting on
+        // that directory's contents rather than on the build's output.
+        //
+        // Cost, accepted: the .so are compressed in the APK (a smaller download) and
+        // unpacked at install time (roughly 19 MB of duplicate on-device storage, and a
+        // slower first install).
+        jniLibs { useLegacyPackaging = true }
     }
 
     // ci.yml and release.yml both run `./gradlew ... lint`, and until now nothing
