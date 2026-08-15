@@ -36,11 +36,35 @@ data class ChatMessage(val role: String, val content: String)
 private data class ChatRequest(
     val messages: List<ChatMessage>,
     val stream: Boolean = false,
-    @SerialName("n_predict") val nPredict: Int = 512,
+    // 512 was not enough. LFM2.5-8B-A1B is a REASONING model: it writes its thinking
+    // into a separate reasoning_content field and only then answers. Measured against
+    // the real server, it burned all 400 tokens of an earlier budget on reasoning
+    // alone and returned finish_reason=length with content EMPTY.
+    //
+    // A reasoning model needs room for both halves. 2048 is not generosity, it is the
+    // minimum that lets one finish a thought and then speak.
+    @SerialName("n_predict") val nPredict: Int = 2048,
+)
+
+/**
+ * `reasoning_content` carries a reasoning model's thinking, separately from the
+ * answer. Models that do not reason simply omit it.
+ *
+ * Modelling it is not optional: reading only `content` renders an EMPTY message for
+ * every reasoning model, which looks like a broken app rather than a truncated reply.
+ */
+@Serializable
+private data class ResponseMessage(
+    val role: String = "assistant",
+    val content: String = "",
+    @SerialName("reasoning_content") val reasoningContent: String = "",
 )
 
 @Serializable
-private data class Choice(val message: ChatMessage)
+private data class Choice(
+    val message: ResponseMessage,
+    @SerialName("finish_reason") val finishReason: String? = null,
+)
 
 @Serializable
 private data class Timings(
@@ -111,15 +135,41 @@ class LlamaClient @Inject constructor() {
         )
     }
 
+    /** What came back: the answer, the thinking that preceded it, and how fast. */
+    data class Completion(
+        val answer: String,
+        val reasoning: String,
+        val truncated: Boolean,
+        val tokensPerSecond: Double?,
+    )
+
     /** Send the conversation, get one reply. Throws on failure so the caller decides. */
-    suspend fun complete(history: List<ChatMessage>): Pair<String, Double?> {
+    suspend fun complete(history: List<ChatMessage>): Completion {
         val response: ChatResponse = client.post("$baseUrl/v1/chat/completions") {
             contentType(ContentType.Application.Json)
             setBody(ChatRequest(messages = history))
         }.body()
-        val text = response.choices.firstOrNull()?.message?.content
-            ?: error("server returned no choices")
-        return text.trim() to response.timings?.predictedPerSecond
+        val choice = response.choices.firstOrNull() ?: error("server returned no choices")
+        val answer = choice.message.content.trim()
+        val reasoning = choice.message.reasoningContent.trim()
+        val truncated = choice.finishReason == "length"
+
+        // A reasoning model that ran out of budget mid-thought returns an empty
+        // answer. Rendering that as a blank message is the worst option: it looks
+        // like the app failed. Say what actually happened instead.
+        if (answer.isEmpty() && reasoning.isNotEmpty()) {
+            error(
+                if (truncated) {
+                    "the model was still thinking when it hit the token limit -- " +
+                        "raise n_predict, or ask something narrower"
+                } else {
+                    "the model returned reasoning but no answer"
+                },
+            )
+        }
+        if (answer.isEmpty()) error("the model returned an empty answer")
+
+        return Completion(answer, reasoning, truncated, response.timings?.predictedPerSecond)
     }
 
     companion object {

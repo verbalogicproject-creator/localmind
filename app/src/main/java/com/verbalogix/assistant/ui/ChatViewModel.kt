@@ -51,13 +51,32 @@ class ChatViewModel @Inject constructor(
             // which is recoverable by asking again, unlike losing what you typed.
             dao.insert(Message(role = "user", content = prompt, createdAt = now()))
 
-            val history = dao.all().map { ChatMessage(it.role, it.content) }
+            // Only real conversation turns go back to the server. The transcript also
+            // holds "thinking" and "error" rows, which are display artefacts -- the
+            // wire protocol knows "user" and "assistant" and nothing else, and sending
+            // an invented role is a malformed request.
+            //
+            // Reasoning is excluded on purpose beyond that: replaying a model's own
+            // chain of thought as conversation history compounds it turn over turn and
+            // burns the context window on text the user never wrote.
+            val history = dao.all()
+                .filter { it.role == "user" || it.role == "assistant" }
+                .map { ChatMessage(it.role, it.content) }
             runCatching { llama.complete(history) }
-                .onSuccess { (reply, tokensPerSecond) ->
-                    dao.insert(Message(role = "assistant", content = reply, createdAt = now()))
+                .onSuccess { result ->
+                    // Reasoning is kept, not discarded. This app's whole stance is
+                    // that the machinery is the product -- on a device where you own
+                    // the model, hiding how it reached an answer would be coy about
+                    // the one thing you can actually inspect.
+                    if (result.reasoning.isNotEmpty()) {
+                        dao.insert(
+                            Message(role = "thinking", content = result.reasoning, createdAt = now()),
+                        )
+                    }
+                    dao.insert(Message(role = "assistant", content = result.answer, createdAt = now()))
                     _status.value = _status.value.copy(
                         reachable = true,
-                        tokensPerSecond = tokensPerSecond ?: _status.value.tokensPerSecond,
+                        tokensPerSecond = result.tokensPerSecond ?: _status.value.tokensPerSecond,
                     )
                 }
                 .onFailure { e ->

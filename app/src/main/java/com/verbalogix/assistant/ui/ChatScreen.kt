@@ -165,12 +165,14 @@ private fun MessageRow(message: Message) {
             text = when (message.role) {
                 "user" -> "YOU"
                 "error" -> "ERROR"
+                "thinking" -> "THINKING"
                 else -> "LOCALMIND"
             },
             style = MaterialTheme.typography.labelSmall,
             color = when (message.role) {
                 "user" -> MaterialTheme.colorScheme.primary
                 "error" -> MaterialTheme.colorScheme.error
+                "thinking" -> MaterialTheme.colorScheme.onSurfaceVariant
                 else -> MaterialTheme.colorScheme.onSurfaceVariant
             },
             modifier = Modifier.width(72.dp),
@@ -178,10 +180,11 @@ private fun MessageRow(message: Message) {
         Text(
             text = message.content,
             style = MaterialTheme.typography.bodyMedium,
-            color = if (message.role == "error") {
-                MaterialTheme.colorScheme.error
-            } else {
-                MaterialTheme.colorScheme.onBackground
+            color = when (message.role) {
+                "error" -> MaterialTheme.colorScheme.error
+                // Dimmed: present and readable, but visibly not the answer.
+                "thinking" -> MaterialTheme.colorScheme.onSurfaceVariant
+                else -> MaterialTheme.colorScheme.onBackground
             },
             modifier = Modifier.weight(1f),
         )
