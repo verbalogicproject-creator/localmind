@@ -33,9 +33,10 @@ import kotlinx.coroutines.flow.Flow
  * state: conversations, settings, provider handles, disposable caches.
  *
  * That boundary arrived from a parallel session before this schema shipped, which
- * matters because the persisted schema is one of exactly three things that can never
- * change after a user installs. Building the RAG store here and moving it later would
- * have meant migrating away from a schema that should never have existed.
+ * matters because a persisted schema is migration-sensitive: it can be changed, but
+ * only forwards, and only by moving data that already sits on devices. Building the
+ * RAG store here and relocating it later would have meant migrating away from a
+ * schema that should never have existed -- possible, but paid for by every user.
  */
 @Entity(tableName = "providers")
 data class Provider(

@@ -12,9 +12,12 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * The persisted schema is one of exactly three things about an Android app that can
- * never be changed after the first user installs. A wrong migration is therefore not a
- * bug you patch; it is data you have already destroyed on someone else's phone.
+ * A persisted schema is migration-sensitive: it can change, but only forwards, and
+ * every step moves data that is already on someone's phone. That is why a wrong
+ * migration is not a bug you patch -- it is data you have already destroyed.
+ *
+ * (The truly immutable decisions are the applicationId and the signing certificate,
+ * which have no migration path at all. This one has a path; the path is one-way.)
  *
  * Two distinct failures are possible and only one of them is loud:
  *

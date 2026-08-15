@@ -23,9 +23,15 @@ import kotlinx.coroutines.flow.Flow
  * Make a kill invisible rather than fight to stay resident. On a RedMagic device,
  * where background management is aggressive, that is the trade that actually works.
  *
- * The schema version is one of exactly three things about this app that can never
- * change after the first install. Version 1 is deliberately minimal: adding a column
- * later is a simple migration, changing a primary key is not.
+ * The schema version is MIGRATION-SENSITIVE, not immutable -- a distinction worth
+ * keeping straight. It CAN change; that is what migrations are for. Only two things
+ * about an Android app have no migration path at all: the applicationId and the
+ * signing certificate.
+ *
+ * What cannot be undone here is that the data is already on someone's device, so a
+ * wrong migration destroys it rather than merely failing. Version 1 is deliberately
+ * minimal for that reason: adding a column later is a simple migration, changing a
+ * primary key is not.
  */
 @Entity(tableName = "messages")
 data class Message(
