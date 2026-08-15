@@ -2,7 +2,9 @@ import java.util.Properties
 
 plugins {
     alias(libs.plugins.android.application)
-    alias(libs.plugins.kotlin.android)
+    // NO alias(libs.plugins.kotlin.android) -- AGP 9 provides Kotlin support
+    // itself and applying the plugin separately is an error. The other Kotlin
+    // plugins below are unaffected and stay versioned with Kotlin.
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.hilt)
@@ -131,7 +133,6 @@ android {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
     }
-    kotlinOptions { jvmTarget = "17" }
 
     buildFeatures {
         compose = true
@@ -140,6 +141,20 @@ android {
 
     packaging {
         resources { excludes += "/META-INF/{AL2.0,LGPL2.1}" }
+    }
+
+    // ci.yml and release.yml both run `./gradlew ... lint`, and until now nothing
+    // configured it. AGP 9 ships new checks and a fresh NewApi baseline against
+    // API 36, so an unconfigured lint can fail the build on a rule nobody adopted --
+    // and the reflex when that happens under deadline is to switch lint off entirely.
+    //
+    // checkDependencies is deliberately false: this is a single-module app, and
+    // scanning dependencies turns a 20-second task into a multi-minute one for
+    // findings we cannot act on.
+    lint {
+        abortOnError = true
+        warningsAsErrors = false
+        checkDependencies = false
     }
 
     // MigrationTestHelper reads the exported schemas at RUNTIME, from the test APK's
@@ -160,9 +175,19 @@ android {
     }
 }
 
+// Replaces `android { kotlinOptions { jvmTarget = "17" } }`, which AGP 9 removed.
+// This is the KGP-native form and it is an ASSIGNMENT, not .set() -- the shape used
+// by android/nowinandroid's KotlinAndroid.kt, which builds against this AGP.
+kotlin {
+    compilerOptions {
+        jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17
+    }
+}
+
 // Room's exported schema JSON is what makes a migration test possible at all --
-// MigrationTestHelper reads it. Without it the migration is untestable, and the
-// persisted schema version is the third of the three irreversible decisions.
+// MigrationTestHelper reads it. Without it the migration is untestable, and a
+// persisted schema can only be changed forwards, by migrating data already on
+// devices -- so a wrong migration destroys it rather than merely failing.
 ksp { arg("room.schemaLocation", "$projectDir/schemas") }
 
 dependencies {
@@ -175,6 +200,7 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    implementation(libs.androidx.material.icons.core)
 
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)

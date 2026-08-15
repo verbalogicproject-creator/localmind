@@ -8,27 +8,27 @@
 # This exact set is proven: it is what CI compiled successfully for ColdForge.
 
 [versions]
-agp = "8.13.2"
-kotlin = "2.3.21"
-ksp = "2.3.11"
+agp = "9.0.0"
+kotlin = "2.3.0"
+ksp = "2.3.4"
 
-coreKtx = "1.19.0"
-lifecycle = "2.11.0"
-activityCompose = "1.13.0"
-composeBom = "2026.08.00"
+coreKtx = "1.15.0"
+lifecycle = "2.10.0"
+activityCompose = "1.9.3"
+composeBom = "2025.09.01"
 
-hilt = "2.57.2"
-hiltNavCompose = "1.3.0"
-room = "2.8.4"
-serialization = "1.11.0"
+hilt = "2.59"
+hiltNavCompose = "1.2.0"
+room = "2.8.3"
+serialization = "1.8.0"
 # Ktor CLIENT. The app talks to llama-server over loopback; it is not a server itself.
 # CIO engine: coroutine-native, no thread-per-connection, which matters on a phone.
-ktor = "3.5.2"
+ktor = "2.3.11"
 
 junit = "4.13.2"
 androidxJunit = "1.3.0"
-espresso = "3.7.0"
-androidxTestRunner = "1.5.2"
+espresso = "3.6.1"
+androidxTestRunner = "1.7.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -46,6 +46,11 @@ androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-toolin
 androidx-ui-test-junit4 = { group = "androidx.compose.ui", name = "ui-test-junit4" }
 androidx-ui-test-manifest = { group = "androidx.compose.ui", name = "ui-test-manifest" }
 androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
+# Icons are NOT transitive from material3 any more. ChatScreen imports
+# androidx.compose.material.icons.{Icons, automirrored.filled.Send}, which used to
+# arrive for free under Compose BOM 2024.04 and does not under later ones.
+# Version comes from the BOM.
+androidx-material-icons-core = { group = "androidx.compose.material", name = "material-icons-core" }
 
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
 hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
@@ -72,7 +77,6 @@ androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-co
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
-kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }

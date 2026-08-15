@@ -58,7 +58,21 @@ while IFS= read -r use; do
         missing=1
     fi
 done < <(
-    grep -rhoE 'libs\.(plugins\.)?[A-Za-z0-9.]+' "${BUILD_FILES[@]}" 2>/dev/null \
+    # Strip // comments BEFORE looking for accessors. A comment naming an alias is
+    # documentation, not a usage, and treating it as one produces a false failure on
+    # correct code -- which is how checks get ignored, and an ignored check is worse
+    # than no check because it still looks like coverage on a table.
+    #
+    # Found when a comment reading "NO alias(libs.plugins.kotlin.android) -- AGP 9
+    # provides Kotlin support itself" failed the check that the removal was correct.
+    # This is the mirror of check 060's bug-comment-only fixture: there a comment must
+    # not COUNT AS PRESENCE, here it must not count as USE.
+    #
+    # Block comments are deliberately not handled. /* */ around a plugins block is not
+    # a thing anyone writes, and a regex that tried would be the "very nearly right"
+    # pattern this corpus keeps getting bitten by.
+    sed 's://.*::' "${BUILD_FILES[@]}" 2>/dev/null \
+        | grep -ohE 'libs\.(plugins\.)?[A-Za-z0-9.]+' \
         | sed 's/^libs\.//; s/^plugins\.//' \
         | sed 's/[.]$//' \
         | sort -u
