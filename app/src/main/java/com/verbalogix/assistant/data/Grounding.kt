@@ -1,6 +1,7 @@
 package com.verbalogix.assistant.data
 
 import kotlinx.serialization.SerialName
+import kotlinx.serialization.builtins.ListSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -62,7 +63,12 @@ object CitationCodec {
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     fun encode(citations: List<Citation>): String? =
-        if (citations.isEmpty()) null else json.encodeToString(citations)
+        // The explicit serializer is not decoration. `encodeToString(x)` resolves to
+        // the SerializationStrategy overload and fails to compile -- the third time
+        // this exact overload has cost a CI round trip in this project. Naming the
+        // serializer removes the ambiguity for good.
+        if (citations.isEmpty()) null
+        else json.encodeToString(ListSerializer(Citation.serializer()), citations)
 
     /**
      * Never throws. A row written by an older build, or corrupted, degrades to "no
@@ -71,5 +77,7 @@ object CitationCodec {
      */
     fun decode(raw: String?): List<Citation> =
         if (raw.isNullOrBlank()) emptyList()
-        else runCatching { json.decodeFromString<List<Citation>>(raw) }.getOrDefault(emptyList())
+        else runCatching {
+            json.decodeFromString(ListSerializer(Citation.serializer()), raw)
+        }.getOrDefault(emptyList())
 }

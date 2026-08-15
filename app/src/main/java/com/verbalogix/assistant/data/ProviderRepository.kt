@@ -21,6 +21,49 @@ class ProviderRepository @Inject constructor(
     fun observeAll(): Flow<List<Provider>> = dao.observeAll()
 
     /**
+     * The mock Harness, seeded in DEBUG BUILDS ONLY.
+     *
+     * The Foundry side is explicit that Localmind may implement the mock Harness
+     * provider now, and must NOT advertise expert-pack support in any user-visible
+     * surface until Stage 3 (Harness / mount / retrieval) closes. Stage 1 F7 is closed;
+     * Stage 2 .kpack construction and Stage 3 integration are not.
+     *
+     * Gating on BuildConfig.DEBUG satisfies both: the path is built and testable
+     * against contracts/mock/harness_mock.py today, and a release build offers nothing
+     * that implies working expert packs. Deleting a line later is not required -- the
+     * gate simply flips when there is something real behind it.
+     */
+    private val mockHarness = listOf(
+        Provider(
+            name = "Handbook (mock)",
+            baseUrl = MOCK_HARNESS_URL,
+            mode = Provider.MODE_HARNESS,
+            model = "handbook-2026",
+        ),
+    )
+
+    /**
+     * Seeded once, now withdrawn: the two direct ports.
+     *
+     * They listed the same two models the swap endpoint already serves, so the picker
+     * showed four entries for two models and the duplicates differed only by a port
+     * number the user should not have to reason about. The swap entries are strictly
+     * better -- they start the server themselves.
+     *
+     * The DIRECT CODE PATH IS UNCHANGED and stays the baseline: an empty `model` still
+     * means no model field and /props for status, and re-adding a direct provider is
+     * one line here. What is withdrawn is the default UI entry, not the capability.
+     *
+     * The tradeoff, stated because it is real: with these gone, nothing works if
+     * llama-swap is not running. Direct entries were a fallback you could reach by
+     * starting one loader by hand.
+     */
+    private val retired = listOf(
+        "http://127.0.0.1:8080" to "",
+        "http://127.0.0.1:8081" to "",
+    )
+
+    /**
      * The defaults describe the machine this app was built for. BOTH generation
      * endpoints are on the GPU, and that is a measured correction to what this comment
      * said first.
@@ -73,49 +116,6 @@ class ProviderRepository @Inject constructor(
         Provider(name = "Qwen3.5 4B", baseUrl = SWAP_URL, model = "qwen-4b"),
         Provider(name = "Bonsai 8B \u00b7 1-bit", baseUrl = SWAP_URL, model = "bonsai-8b"),
     ) + if (BuildConfig.DEBUG) mockHarness else emptyList()
-
-    /**
-     * The mock Harness, seeded in DEBUG BUILDS ONLY.
-     *
-     * The Foundry side is explicit that Localmind may implement the mock Harness
-     * provider now, and must NOT advertise expert-pack support in any user-visible
-     * surface until Stage 3 (Harness / mount / retrieval) closes. Stage 1 F7 is closed;
-     * Stage 2 .kpack construction and Stage 3 integration are not.
-     *
-     * Gating on BuildConfig.DEBUG satisfies both: the path is built and testable
-     * against contracts/mock/harness_mock.py today, and a release build offers nothing
-     * that implies working expert packs. Deleting a line later is not required -- the
-     * gate simply flips when there is something real behind it.
-     */
-    private val mockHarness = listOf(
-        Provider(
-            name = "Handbook (mock)",
-            baseUrl = MOCK_HARNESS_URL,
-            mode = Provider.MODE_HARNESS,
-            model = "handbook-2026",
-        ),
-    )
-
-    /**
-     * Seeded once, now withdrawn: the two direct ports.
-     *
-     * They listed the same two models the swap endpoint already serves, so the picker
-     * showed four entries for two models and the duplicates differed only by a port
-     * number the user should not have to reason about. The swap entries are strictly
-     * better -- they start the server themselves.
-     *
-     * The DIRECT CODE PATH IS UNCHANGED and stays the baseline: an empty `model` still
-     * means no model field and /props for status, and re-adding a direct provider is
-     * one line here. What is withdrawn is the default UI entry, not the capability.
-     *
-     * The tradeoff, stated because it is real: with these gone, nothing works if
-     * llama-swap is not running. Direct entries were a fallback you could reach by
-     * starting one loader by hand.
-     */
-    private val retired = listOf(
-        "http://127.0.0.1:8080" to "",
-        "http://127.0.0.1:8081" to "",
-    )
 
     /**
      * Idempotent: inserts any default whose (baseUrl, model) pair is absent and leaves
