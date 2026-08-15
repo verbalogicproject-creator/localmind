@@ -41,6 +41,39 @@ fi
 
 failures=0
 ran=0
+skipped=0
+
+# ── Suppressions ───────────────────────────────────────────────────────────
+# .appfactory/preflight-ignore, one entry per line:
+#
+#   <check-id> | <reason>
+#
+# THE REASON IS MANDATORY. An entry without one is itself an error, because
+# silent suppression is how check corpora die: someone disables a noisy check on
+# a Friday, nobody remembers why, and a year later the corpus is decoration.
+#
+# Every suppression is printed on every run. A check you have turned off should
+# be visible every time, not discovered later by someone reading a dotfile.
+#
+# The motivating case is genuine and self-resolving: check 090 requires a
+# committed Room schema, but the schema can only be produced BY a build, so the
+# first commit that introduces Room deadlocks -- preflight blocks the build that
+# would generate the file that satisfies preflight.
+IGNORE_FILE="$ROOT/.appfactory/preflight-ignore"
+declare -A IGNORED=()
+if [ -f "$IGNORE_FILE" ]; then
+    while IFS= read -r line; do
+        case "$line" in ''|'#'*) continue ;; esac
+        id="$(printf '%s' "$line" | cut -d'|' -f1 | tr -d ' ')"
+        reason="$(printf '%s' "$line" | cut -d'|' -f2- | sed 's/^ *//; s/ *$//')"
+        if [ -z "$reason" ]; then
+            printf '\033[31mFAIL\033[0m suppression of %s has no reason. Silent suppression is how check corpora die.\n' "$id"
+            failures=$((failures + 1))
+            continue
+        fi
+        IGNORED["$id"]="$reason"
+    done < "$IGNORE_FILE"
+fi
 
 # checks/ then checks/local/ -- project-specific checks live in local/ and are
 # never touched by `upgrade`, so a re-vendor cannot silently delete them.
@@ -53,6 +86,12 @@ for check in "$CHECKS_DIR"/*.sh "$CHECKS_DIR"/local/*.sh; do
     if [ ! -d "$HERE/preflight/fixtures/$id" ]; then
         printf '\033[31mFAIL\033[0m check %s ships without fixtures/%s/ -- refusing to run it\n' "$id" "$id"
         failures=$((failures + 1))
+        continue
+    fi
+
+    if [ -n "${IGNORED[$id]:-}" ]; then
+        printf '\033[33mskip\033[0m %s -- %s\n' "$id" "${IGNORED[$id]}"
+        skipped=$((skipped + 1))
         continue
     fi
 
