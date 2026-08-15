@@ -36,6 +36,111 @@ fun signingValue(key: String, env: String): String? =
 val releaseStoreFile = signingValue("storeFile", "SIGNING_KEYSTORE_PATH")
 val hasReleaseSigning = releaseStoreFile != null && rootProject.file(releaseStoreFile).exists()
 
+// ── Prebuilt llama.cpp ──────────────────────────────────────────────────────────
+//
+// The native engine is FETCHED AND VERIFIED, not built here and not committed here.
+//
+// Built here: measured at 229s per ABI, and Gradle builds ABIs one after another, so
+// roughly 7.5 minutes added to a 3-minute inner loop on every push -- to rebuild
+// something that changes only when native/llama.cpp.pin changes. native.yml builds it
+// once per pin instead.
+//
+// Committed here: 19 MB per ABI is tempting, but it is 19 MB PER PIN BUMP, forever, in
+// a repo that is otherwise a few megabytes, and every CI clone pays for the whole
+// history. What is committed is the DIGEST -- a few lines of text -- which is the same
+// trade as pinning a certificate rather than storing a key.
+//
+// The verification is not ceremony. These libraries are downloaded over the network
+// and loaded as native code into the app's process; an unverified download is arbitrary
+// code execution with extra steps. Failing closed on a digest mismatch is the only
+// acceptable behaviour, and it is why this task refuses rather than warns.
+val llamaTag: String = rootProject.file("native/llama.cpp.pin").readLines()
+    .firstOrNull { it.trimStart().startsWith("tag") }
+    ?.substringAfter("=")?.trim()
+    ?: error("native/llama.cpp.pin declares no tag")
+
+abstract class FetchNativeLibs : DefaultTask() {
+    @get:Input abstract val tag: Property<String>
+    @get:Input abstract val abis: ListProperty<String>
+    @get:Input abstract val repo: Property<String>
+    @get:InputFile abstract val sums: RegularFileProperty
+    @get:OutputDirectory abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun fetch() {
+        val expected = sums.get().asFile.readLines()
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && !it.startsWith("#") }
+            .mapNotNull { line ->
+                val parts = line.split(Regex("\\s+"), limit = 2)
+                if (parts.size == 2) parts[1].trim().removePrefix("./") to parts[0].lowercase() else null
+            }.toMap()
+        if (expected.isEmpty()) {
+            error("${sums.get().asFile} lists no digests -- refusing to download anything unverified")
+        }
+
+        val dest = outputDir.get().asFile
+        dest.deleteRecursively()
+        dest.mkdirs()
+
+        for (abi in abis.get()) {
+            val name = "$abi.zip"
+            val want = expected[name]
+                ?: error("native/SHA256SUMS.txt has no entry for $name -- refusing to trust an unlisted download")
+            val url = "https://github.com/${repo.get()}/releases/download/native-${tag.get()}/$name"
+            logger.lifecycle("fetching $url")
+
+            val bytes = java.net.URI(url).toURL().openStream().use { it.readBytes() }
+            val got = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(bytes).joinToString("") { "%02x".format(it) }
+            if (got != want) {
+                error(
+                    "SHA-256 mismatch for $name\n" +
+                        "  expected $want\n" +
+                        "  actual   $got\n" +
+                        "These libraries are loaded as native code into the app process. Refusing.",
+                )
+            }
+
+            java.util.zip.ZipInputStream(bytes.inputStream()).use { zip ->
+                var entry = zip.nextEntry
+                while (entry != null) {
+                    // A zip entry name is attacker-controlled input in the general case.
+                    // Resolving and then checking containment is the standard defence
+                    // against ../ escaping the destination -- cheap, and the digest check
+                    // above is not a substitute, because it only proves the archive is
+                    // the one we published.
+                    val out = dest.resolve(entry.name).normalize()
+                    require(out.path.startsWith(dest.path)) { "zip entry escapes: ${entry!!.name}" }
+                    if (entry.isDirectory) {
+                        out.mkdirs()
+                    } else {
+                        out.parentFile.mkdirs()
+                        out.outputStream().use { zip.copyTo(it) }
+                    }
+                    entry = zip.nextEntry
+                }
+            }
+        }
+
+        val found = dest.walkTopDown().filter { it.name.endsWith(".so") }.count()
+        if (found == 0) error("The downloaded archives contained no .so files.")
+        logger.lifecycle("native libraries ready: $found files under $dest")
+    }
+}
+
+val nativeLibsDir: Provider<Directory> = layout.buildDirectory.dir("nativeLibs")
+
+val fetchNativeLibs = tasks.register<FetchNativeLibs>("fetchNativeLibs") {
+    description = "Downloads and verifies the prebuilt llama.cpp libraries for the pinned commit."
+    group = "build setup"
+    tag.set(llamaTag)
+    abis.set(listOf("arm64-v8a", "x86_64"))
+    repo.set("verbalogicproject-creator/localmind")
+    sums.set(rootProject.file("native/SHA256SUMS.txt"))
+    outputDir.set(nativeLibsDir)
+}
+
 android {
     namespace = "com.verbalogix.assistant"
     compileSdk = 36
@@ -172,6 +277,11 @@ android {
         getByName("androidTest") {
             assets.srcDirs(files("$projectDir/schemas"))
         }
+        // The fetched engine. build/ rather than src/, because these are downloaded
+        // artifacts and nothing under src/ should be something a task can recreate.
+        getByName("main") {
+            jniLibs.srcDir(nativeLibsDir)
+        }
     }
 }
 
@@ -229,3 +339,11 @@ dependencies {
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)
 }
+
+// Every variant's native packaging depends on the fetch, not just assemble. Wiring it
+// to preBuild alone would leave `bundleRelease` or an androidTest build racing a
+// half-populated directory -- and a missing .so surfaces at RUNTIME as
+// UnsatisfiedLinkError, on a device, rather than as a build failure.
+tasks.matching { it.name.startsWith("merge") && it.name.endsWith("JniLibFolders") }
+    .configureEach { dependsOn(fetchNativeLibs) }
+tasks.named("preBuild") { dependsOn(fetchNativeLibs) }

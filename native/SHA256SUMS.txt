@@ -1,0 +1,17 @@
+# Digests of the prebuilt llama.cpp archives the app's Gradle build downloads.
+#
+# Published by native.yml as release assets under the tag native-<pin tag>, from the
+# commit recorded in llama.cpp.pin. Regenerate by bumping the pin, running native.yml,
+# and copying what its summary prints.
+#
+# THIS FILE IS THE TRUST ANCHOR. The archives are fetched over the network and their
+# contents are loaded as native code into the app's process, so a mismatch is not a
+# stale-cache annoyance -- it is the only thing standing between a swapped download and
+# arbitrary code execution. fetchNativeLibs fails closed, and an archive not listed
+# here is refused outright rather than trusted because it downloaded successfully.
+#
+# Format is plain `sha256sum` output, so `sha256sum -c` works on it directly once the
+# comments are stripped. Comment and blank lines are ignored by the Gradle parser.
+
+53e9fb3ce9518d3742b7aaa0206958ed402a8e0ec466a66f45c31c59405d73c5  ./arm64-v8a.zip
+b907235d3d6eaa916f297b60e6f87f881ae9690576bea51b6fd4206f7468bc5d  ./x86_64.zip
