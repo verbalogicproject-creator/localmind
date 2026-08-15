@@ -10,7 +10,7 @@
 #
 set -uo pipefail
 
-PKG={{APPLICATION_ID}}
+PKG=com.verbalogix.assistant
 LAUNCHER="$PKG/.MainActivity"
 OUT=emulator-out
 mkdir -p "$OUT"

@@ -46,13 +46,13 @@ def substitutions(application_id: str, app_name: str) -> dict[str, str]:
     app_class = "".join(w.capitalize() for w in re.split(r"[^A-Za-z0-9]+", app_name) if w) or "App"
     slug = re.sub(r"[^a-z0-9]+", "-", app_name.lower()).strip("-") or "app"
     return {
-        "{{APPLICATION_ID}}": application_id,
-        "{{APP_CLASS}}": app_class,
-        "{{APP_NAME}}": app_name,
-        "{{APP_NAME_UPPER}}": app_name.upper(),
-        "{{APP_SLUG}}": slug,
-        "{{PROJECT_NAME}}": app_class,
-        "{{APP_TAGLINE}}": "walking skeleton",
+        "com.verbalogix.assistant": application_id,
+        "Localmind": app_class,
+        "Localmind": app_name,
+        "LOCALMIND": app_name.upper(),
+        "localmind": slug,
+        "Localmind": app_class,
+        "walking skeleton": "walking skeleton",
     }
 
 
@@ -98,13 +98,13 @@ def main() -> int:
         die(f"{target} exists and is not empty. Use --force to scaffold into it anyway.")
 
     subs = substitutions(app_id, args.app_name)
-    subs["{{MIN_SDK}}"] = str(args.min_sdk)
-    subs["{{TARGET_SDK}}"] = str(args.target_sdk)
+    subs["28"] = str(args.min_sdk)
+    subs["34"] = str(args.target_sdk)
     pkg_path = app_id.replace(".", "/")
 
     print(f"scaffolding {args.app_name}")
     note(f"applicationId  {app_id}   (IRREVERSIBLE)")
-    note(f"class          {subs['{{APP_CLASS}}']}")
+    note(f"class          {subs['Localmind']}")
     note(f"minSdk/target  {args.min_sdk}/{args.target_sdk}")
     print()
 
@@ -143,11 +143,32 @@ def main() -> int:
     ok(f"app sources ({count})")
 
     # --- vendored runtime --------------------------------------------------
+    #
+    # scripts/ must be RENDERED, not copied. emulator-verify.sh contains
+    # com.verbalogix.assistant, and copying it verbatim produced
+    #     Error: Activity class {com.verbalogix.assistant/...MainActivity} does not exist
+    # on the emulator — the launch smoke caught it honestly, but only after a
+    # 10-minute run, and only because that rung exists at all.
+    #
+    # The fixture trees under scripts/preflight/fixtures/ are copied verbatim on
+    # purpose: they are deliberately-broken sample projects, and rendering them
+    # would corrupt the very bugs they encode.
     for sub_dir, dst in (("scripts", "scripts"), ("bin", ".appfactory/bin")):
-        s = os.path.join(RUNTIME, sub_dir)
-        d = os.path.join(target, dst)
-        if os.path.isdir(s):
-            shutil.copytree(s, d, dirs_exist_ok=True)
+        src_root = os.path.join(RUNTIME, sub_dir)
+        if not os.path.isdir(src_root):
+            continue
+        for root, _, files in os.walk(src_root):
+            for f in files:
+                s = os.path.join(root, f)
+                rel = os.path.relpath(s, src_root)
+                d = os.path.join(target, dst, rel)
+                if "preflight/fixtures/" in rel.replace(os.sep, "/"):
+                    os.makedirs(os.path.dirname(d), exist_ok=True)
+                    shutil.copy2(s, d)
+                else:
+                    copy_rendered(s, d, subs)
+                if f.endswith((".sh", ".py")):
+                    os.chmod(d, 0o755)
     for wf in os.listdir(os.path.join(RUNTIME, "workflows")):
         copy_rendered(os.path.join(RUNTIME, "workflows", wf),
                       os.path.join(target, ".github/workflows", wf), subs)
