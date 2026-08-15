@@ -130,11 +130,18 @@ jobs:
             echo "::error::$MAP absent -- release build did not run, or minification is off."
             exit 1
           fi
-          python3 scripts/verify_mapping.py "$MAP" \
+          # Classes that MUST survive minification, one per line, app-specific.
+          # Optional: absent means "only check the manifest-named classes", which is
+          # always necessary since Android instantiates those by string.
+          REQUIRED=""
+          if [ -f .appfactory/release/required-classes.txt ]; then
+            REQUIRED=$(grep -vE '^\s*(#|$)' .appfactory/release/required-classes.txt | tr '\n' ' ')
+          fi
+          python3 .appfactory/bin/verify_mapping.py "$MAP" \
             app/src/main/AndroidManifest.xml \
             app/src/main \
             com.verbalogix.assistant \
-            com.verbalogix.assistant.data.ItemDto
+            $REQUIRED
 
       - name: Name artifacts with the commit
         id: names

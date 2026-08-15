@@ -235,6 +235,68 @@ def cmd_keygen(args) -> int:
     return 0
 
 
+def cmd_import_keystore(args) -> int:
+    """Adopt an existing loose .jks into the vault.
+
+    For keys created before the vault existed, which is the common real case: a
+    keystore and its password sitting as plain files somewhere, protected only by
+    directory permissions and by nobody having looked.
+
+    Deliberately does NOT delete the original. Verify the import round-trips first,
+    then remove the plaintext yourself. A migration tool that deletes the source
+    before you have confirmed the destination is how keys get lost, and this is the
+    one asset with no recovery path.
+    """
+    if not os.path.exists(args.keystore):
+        sys.exit(f"no keystore at {args.keystore}")
+
+    password = args.password
+    if not password and args.password_file:
+        password = open(args.password_file).read().strip()
+    if not password:
+        sys.exit("need --password or --password-file")
+
+    blob = open(args.keystore, "rb").read()
+
+    # Prove the password actually opens it BEFORE storing anything. Importing a
+    # keystore with the wrong password would produce a vault entry that looks fine
+    # and fails at the next release.
+    listing = subprocess.run(
+        ["keytool", "-list", "-v", "-keystore", args.keystore, "-storepass", password],
+        capture_output=True, text=True,
+    )
+    if listing.returncode != 0:
+        sys.exit(f"keytool could not open {args.keystore} with that password -- "
+                 "refusing to store an entry that would fail at release time")
+
+    cert, alias = "", args.alias
+    for line in listing.stdout.splitlines():
+        if "SHA256:" in line and not cert:
+            cert = line.split("SHA256:")[1].strip().replace(":", "").lower()
+        if not alias and line.startswith("Alias name:"):
+            alias = line.split(":", 1)[1].strip()
+
+    payload, pw = load_vault()
+    prof = payload["profiles"].setdefault(args.profile, {})
+    if "keystore" in prof and not args.force:
+        sys.exit(f"profile '{args.profile}' already has a keystore; --force to replace")
+
+    prof["keystore"] = {
+        "b64": base64.b64encode(blob).decode(),
+        "sha256": hashlib.sha256(blob).hexdigest(),
+        "alias": alias,
+        "store_password": password,
+        "cert_sha256": cert,
+        "imported_from": os.path.abspath(args.keystore),
+    }
+    save_vault(payload, pw)
+    ok(f"imported {len(blob)} bytes into profile '{args.profile}'")
+    ok(f"alias: {alias}")
+    ok(f"cert:  {cert}")
+    warn(f"The original is STILL at {args.keystore}. Verify the import, then delete it.")
+    return 0
+
+
 def cmd_sync(args) -> int:
     """Push signing secrets to GitHub Actions, then READ BACK and diff."""
     payload, _ = load_vault()
@@ -372,6 +434,15 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--dname", default="CN=AppFactory,O=Unknown,C=US")
     s.add_argument("--force", action="store_true")
     s.set_defaults(fn=cmd_keygen)
+
+    s = sub.add_parser("import-keystore", help="adopt an existing loose .jks into the vault")
+    s.add_argument("profile")
+    s.add_argument("--keystore", required=True)
+    s.add_argument("--password")
+    s.add_argument("--password-file")
+    s.add_argument("--alias")
+    s.add_argument("--force", action="store_true")
+    s.set_defaults(fn=cmd_import_keystore)
 
     s = sub.add_parser("sync", help="push signing secrets to GitHub, then read back")
     s.add_argument("profile")
