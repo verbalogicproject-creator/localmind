@@ -2,5 +2,3 @@
 #
 # The reason is MANDATORY and is printed on every run. A check you have turned off
 # should be visible every time, not discovered later by someone reading a dotfile.
-
-090-db-version-has-schema | Room v1 introduced in 9225e2e. The exported schema can only be produced BY a build, and preflight gates the build, so the first Room commit deadlocks. Remove this line once app/schemas/**/1.json is committed -- it is a one-time bootstrap, not an ongoing exemption.
