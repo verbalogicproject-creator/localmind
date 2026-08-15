@@ -7,6 +7,8 @@ import androidx.room.Insert
 import androidx.room.PrimaryKey
 import androidx.room.Query
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import kotlinx.coroutines.flow.Flow
 
 /**
@@ -50,11 +52,39 @@ interface MessageDao {
     suspend fun clear()
 }
 
-@Database(entities = [Message::class], version = 1, exportSchema = true)
+@Database(entities = [Message::class, Provider::class], version = 2, exportSchema = true)
 abstract class LocalmindDatabase : RoomDatabase() {
     abstract fun messageDao(): MessageDao
+    abstract fun providerDao(): ProviderDao
 
     companion object {
         const val NAME = "localmind.db"
+
+        /**
+         * v1 -> v2: the provider seam. Adds `providers`; touches nothing that already
+         * exists, so an upgrade keeps every message.
+         *
+         * Purely structural -- it creates the table and inserts nothing. Seeding lives
+         * in one place instead (ProviderRepository.ensureSeeded, on the count == 0
+         * path), because a fresh install never runs a migration at all and would
+         * otherwise need its own seeding code. One path means an upgraded install and
+         * a fresh one cannot drift into different defaults.
+         *
+         * The SQL must match what Room generates for the entity exactly. When it does
+         * not, Room throws on first open after upgrade -- which is what MigrationTest
+         * exists to discover here rather than on a user's device.
+         */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `providers` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`name` TEXT NOT NULL, " +
+                        "`baseUrl` TEXT NOT NULL, " +
+                        "`mode` TEXT NOT NULL, " +
+                        "`isActive` INTEGER NOT NULL)",
+                )
+            }
+        }
     }
 }

@@ -6,6 +6,8 @@ import com.verbalogix.assistant.data.ChatMessage
 import com.verbalogix.assistant.data.LlamaClient
 import com.verbalogix.assistant.data.Message
 import com.verbalogix.assistant.data.MessageDao
+import com.verbalogix.assistant.data.Provider
+import com.verbalogix.assistant.data.ProviderRepository
 import com.verbalogix.assistant.data.ServerStatus
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -20,11 +22,18 @@ import kotlinx.coroutines.launch
 class ChatViewModel @Inject constructor(
     private val dao: MessageDao,
     private val llama: LlamaClient,
+    private val providers: ProviderRepository,
 ) : ViewModel() {
 
     /** Straight from Room, so a process death loses nothing. */
     val messages: StateFlow<List<Message>> = dao.observeAll()
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    val providerList: StateFlow<List<Provider>> = providers.observeAll()
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    private val _provider = MutableStateFlow<Provider?>(null)
+    val provider: StateFlow<Provider?> = _provider.asStateFlow()
 
     private val _status = MutableStateFlow(ServerStatus(reachable = false))
     val status: StateFlow<ServerStatus> = _status.asStateFlow()
@@ -33,11 +42,36 @@ class ChatViewModel @Inject constructor(
     val sending: StateFlow<Boolean> = _sending.asStateFlow()
 
     init {
-        refreshStatus()
+        viewModelScope.launch {
+            providers.ensureSeeded()
+            _provider.value = providers.active()
+            refreshStatus()
+        }
+    }
+
+    /**
+     * Switching endpoint deliberately does NOT clear the transcript. The conversation
+     * belongs to the user, not to whichever model answered a given turn, and handing
+     * one model's history to another is the point of having specialists: ask the
+     * reasoning model to think, then switch and ask the coding model to implement it.
+     */
+    fun selectProvider(id: Long) {
+        viewModelScope.launch {
+            providers.select(id)
+            _provider.value = providers.active()
+            // Clear stale readings first. Carrying the previous endpoint's model name
+            // and tok/s across a switch would show one server's numbers under
+            // another's name until the probe returns.
+            _status.value = ServerStatus(reachable = false)
+            refreshStatus()
+        }
     }
 
     fun refreshStatus() {
-        viewModelScope.launch { _status.value = llama.status() }
+        viewModelScope.launch {
+            val target = _provider.value ?: providers.active().also { _provider.value = it }
+            _status.value = llama.status(target.baseUrl)
+        }
     }
 
     fun send(text: String) {
@@ -46,6 +80,10 @@ class ChatViewModel @Inject constructor(
 
         viewModelScope.launch {
             _sending.value = true
+            // Read once, up front. If the user switches provider mid-generation the
+            // reply still belongs to the endpoint that was asked, and the error
+            // message on failure names the right one.
+            val target = _provider.value ?: providers.active().also { _provider.value = it }
             // Persist the user's turn BEFORE the network call. If the process dies
             // mid-generation, the question survives and only the answer is lost --
             // which is recoverable by asking again, unlike losing what you typed.
@@ -62,7 +100,7 @@ class ChatViewModel @Inject constructor(
             val history = dao.all()
                 .filter { it.role == "user" || it.role == "assistant" }
                 .map { ChatMessage(it.role, it.content) }
-            runCatching { llama.complete(history) }
+            runCatching { llama.complete(target.baseUrl, history) }
                 .onSuccess { result ->
                     // Reasoning is kept, not discarded. This app's whole stance is
                     // that the machinery is the product -- on a device where you own

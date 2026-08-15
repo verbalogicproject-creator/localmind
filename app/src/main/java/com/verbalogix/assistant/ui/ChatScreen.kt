@@ -18,6 +18,8 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -38,6 +40,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.verbalogix.assistant.data.Message
+import com.verbalogix.assistant.data.Provider
 import com.verbalogix.assistant.data.ServerStatus
 import com.verbalogix.assistant.ui.theme.LocalmindTheme
 
@@ -61,11 +64,14 @@ fun ChatScreen(
     onSend: (String) -> Unit,
     onRetryStatus: () -> Unit,
     buildLabel: String,
+    providers: List<Provider>,
+    provider: Provider?,
+    onSelectProvider: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize()) {
-            StatusStrip(status, onRetryStatus, buildLabel)
+            StatusStrip(status, onRetryStatus, buildLabel, providers, provider, onSelectProvider)
 
             val listState = rememberLazyListState()
             // Follow the conversation as it grows, without stealing scroll from a
@@ -93,7 +99,14 @@ fun ChatScreen(
  * shows it. Each value answers a question you would otherwise leave the app to ask.
  */
 @Composable
-private fun StatusStrip(status: ServerStatus, onRetry: () -> Unit, buildLabel: String) {
+private fun StatusStrip(
+    status: ServerStatus,
+    onRetry: () -> Unit,
+    buildLabel: String,
+    providers: List<Provider>,
+    provider: Provider?,
+    onSelectProvider: (Long) -> Unit,
+) {
     Surface(color = MaterialTheme.colorScheme.surface) {
         Column(
             modifier = Modifier
@@ -134,14 +147,106 @@ private fun StatusStrip(status: ServerStatus, onRetry: () -> Unit, buildLabel: S
                     )
                 }
             }
-            // Build provenance stays on screen. It belongs to the same thesis as the
-            // rest of this strip -- the build IS part of the machinery -- and it is
-            // what makes a screenshot evidence rather than an impression.
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                ProviderPicker(providers, provider, onSelectProvider)
+                Spacer(Modifier.weight(1f))
+                // Build provenance stays on screen. It belongs to the same thesis as
+                // the rest of this strip -- the build IS part of the machinery -- and
+                // it is what makes a screenshot evidence rather than an impression.
+                Text(
+                    buildLabel,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Which endpoint is answering, and how to change it.
+ *
+ * `provider` and `status.model` are two different facts and both are shown: the
+ * provider is the endpoint you chose, the model is what that server reports it
+ * actually loaded. They disagree exactly when something is wrong -- you switched to
+ * the NPU port and it is still serving the old weights -- and collapsing them into one
+ * label would hide the only symptom.
+ */
+@Composable
+private fun ProviderPicker(
+    providers: List<Provider>,
+    current: Provider?,
+    onSelect: (Long) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    // One configured endpoint is not a choice, so it renders as a plain label. A menu
+    // that opens to a single item is a control that does nothing.
+    val switchable = providers.size > 1
+
+    Box {
+        Row(
+            modifier = Modifier
+                .then(if (switchable) Modifier.clickable { expanded = true } else Modifier)
+                .padding(vertical = 2.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
             Text(
-                buildLabel,
+                current?.name ?: "no provider",
                 style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (switchable) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
+            if (switchable) {
+                Text(
+                    "▾",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            providers.forEach { p ->
+                DropdownMenuItem(
+                    onClick = {
+                        expanded = false
+                        onSelect(p.id)
+                    },
+                    text = {
+                        Column {
+                            Text(p.name, style = MaterialTheme.typography.bodyMedium)
+                            // The URL is shown, not hidden behind the name. When two
+                            // providers are misconfigured to the same port this is the
+                            // only place that difference is visible.
+                            Text(
+                                p.baseUrl.removePrefix("http://"),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    },
+                    trailingIcon = if (p.id == current?.id) {
+                        {
+                            Text(
+                                "✓",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                )
+            }
         }
     }
 }
@@ -265,6 +370,11 @@ private fun Composer(sending: Boolean, onSend: (String) -> Unit) {
 }
 
 // Sample content lives here and nowhere else.
+private val previewProviders = listOf(
+    Provider(1, "LFM2.5 8B", "http://127.0.0.1:8080", isActive = true),
+    Provider(2, "Qwen3.5 4B", "http://127.0.0.1:8081"),
+)
+
 @Preview(showBackground = true, backgroundColor = 0xFF000000)
 @Composable
 private fun ChatScreenPreview() {
@@ -286,6 +396,9 @@ private fun ChatScreenPreview() {
             onSend = {},
             onRetryStatus = {},
             buildLabel = "v0.0.2 · abc1234",
+            providers = previewProviders,
+            provider = previewProviders.first(),
+            onSelectProvider = {},
         )
     }
 }
@@ -301,6 +414,9 @@ private fun ChatScreenOfflinePreview() {
             onSend = {},
             onRetryStatus = {},
             buildLabel = "v0.0.2 · abc1234",
+            providers = previewProviders,
+            provider = previewProviders.first(),
+            onSelectProvider = {},
         )
     }
 }

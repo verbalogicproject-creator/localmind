@@ -32,6 +32,8 @@ class MainActivity : ComponentActivity() {
                 val messages by vm.messages.collectAsStateWithLifecycle()
                 val status by vm.status.collectAsStateWithLifecycle()
                 val sending by vm.sending.collectAsStateWithLifecycle()
+                val providers by vm.providerList.collectAsStateWithLifecycle()
+                val provider by vm.provider.collectAsStateWithLifecycle()
 
                 ChatScreen(
                     messages = messages,
@@ -40,6 +42,9 @@ class MainActivity : ComponentActivity() {
                     onSend = vm::send,
                     onRetryStatus = vm::refreshStatus,
                     buildLabel = "v${BuildConfig.VERSION_NAME} · ${BuildConfig.GIT_SHA}",
+                    providers = providers,
+                    provider = provider,
+                    onSelectProvider = vm::selectProvider,
                 )
             }
         }

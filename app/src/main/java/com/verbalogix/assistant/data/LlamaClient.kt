@@ -100,8 +100,11 @@ data class ServerStatus(
 @Singleton
 class LlamaClient @Inject constructor() {
 
-    var baseUrl: String = DEFAULT_BASE_URL
-
+    // No mutable baseUrl field here on purpose. This is a @Singleton, so a field would
+    // be shared state that a provider switch mutates while a request is in flight --
+    // the reply would arrive attributed to whichever endpoint happened to be selected
+    // when it landed, not the one that answered. The endpoint is a property of the
+    // call, so it travels as an argument.
     private val client = HttpClient(io.ktor.client.engine.cio.CIO) {
         install(ContentNegotiation) {
             // The server sends fields this app does not model, and adds more between
@@ -118,7 +121,7 @@ class LlamaClient @Inject constructor() {
     }
 
     /** Cheap reachability probe. Never throws: absence is a state, not an error. */
-    suspend fun status(): ServerStatus = runCatching {
+    suspend fun status(baseUrl: String): ServerStatus = runCatching {
         val props: Props = client.get("$baseUrl/props").body()
         ServerStatus(
             reachable = true,
@@ -144,7 +147,7 @@ class LlamaClient @Inject constructor() {
     )
 
     /** Send the conversation, get one reply. Throws on failure so the caller decides. */
-    suspend fun complete(history: List<ChatMessage>): Completion {
+    suspend fun complete(baseUrl: String, history: List<ChatMessage>): Completion {
         val response: ChatResponse = client.post("$baseUrl/v1/chat/completions") {
             contentType(ContentType.Application.Json)
             setBody(ChatRequest(messages = history))
@@ -172,8 +175,4 @@ class LlamaClient @Inject constructor() {
         return Completion(answer, reasoning, truncated, response.timings?.predictedPerSecond)
     }
 
-    companion object {
-        /** Matches ~/llama.cpp/lfm2.5-1.2b.sh, which serves on 127.0.0.1:8080. */
-        const val DEFAULT_BASE_URL = "http://127.0.0.1:8080"
-    }
 }
