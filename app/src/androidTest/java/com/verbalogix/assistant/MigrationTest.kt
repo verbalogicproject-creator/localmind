@@ -164,6 +164,52 @@ class MigrationTest {
         migrated.close()
     }
 
+    /** v3 -> v4 alone: the ALTER pair produces exactly the schema Room expects. */
+    @Test
+    fun migrate3To4_matchesExportedSchema() {
+        helper.createDatabase(TEST_DB, 3).close()
+        helper.runMigrationsAndValidate(
+            TEST_DB,
+            4,
+            true,
+            LocalmindDatabase.MIGRATION_3_4,
+        ).close()
+    }
+
+    /**
+     * v1 straight through to v4 -- what an installed v0.0.4 actually runs on upgrade.
+     *
+     * Both new columns are NULLABLE, and this asserts that: an existing message keeps
+     * its content and gets `citations = null`, `grounded = null`. Null is the honest
+     * value for a message written before grounding existed, and it must not render as
+     * "not grounded" -- which is a claim, and a false one.
+     */
+    @Test
+    fun migrate1To4_preservesMessagesAndLeavesGroundingNull() {
+        helper.createDatabase(TEST_DB, 1).use { db ->
+            db.execSQL(
+                "INSERT INTO messages (role, content, createdAt) VALUES ('user', 'survives', 1)",
+            )
+        }
+        helper.runMigrationsAndValidate(TEST_DB, 2, true, LocalmindDatabase.MIGRATION_1_2).close()
+        helper.runMigrationsAndValidate(TEST_DB, 3, true, LocalmindDatabase.MIGRATION_2_3).close()
+
+        val migrated = helper.runMigrationsAndValidate(
+            TEST_DB,
+            4,
+            true,
+            LocalmindDatabase.MIGRATION_3_4,
+        )
+        migrated.query("SELECT content, citations, grounded FROM messages").use { c ->
+            assertEquals("messages after three migrations", 1, c.count)
+            assertTrue(c.moveToFirst())
+            assertEquals("survives", c.getString(0))
+            assertTrue("citations must be null on an upgraded row", c.isNull(1))
+            assertTrue("grounded must be null, not false", c.isNull(2))
+        }
+        migrated.close()
+    }
+
     private companion object {
         const val TEST_DB = "migration-test.db"
     }

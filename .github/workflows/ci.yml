@@ -68,7 +68,13 @@ jobs:
         id: gradle
         run: |
           set -o pipefail
-          ./gradlew assembleDebug testDebugUnitTest lint --stacktrace 2>&1 | tee build.log
+          # assembleDebugAndroidTest COMPILES the instrumented tests without running
+          # them. Without it, push-CI never touches androidTest at all, and an API
+          # break there stays invisible until a tag fires the 12-minute emulator rung.
+          # Room's MigrationTestHelper is exactly such a surface -- its constructor
+          # changed shape in 2.7 -- so a lattice bump could look green here and fail
+          # on the next release.
+          ./gradlew assembleDebug assembleDebugAndroidTest testDebugUnitTest lint --stacktrace 2>&1 | tee build.log
 
       # Gradle prints Kotlin errors as `e: file:///abs/path/F.kt:12:34 message`.
       # Re-emit them as GitHub annotations so a failure is retrievable as
