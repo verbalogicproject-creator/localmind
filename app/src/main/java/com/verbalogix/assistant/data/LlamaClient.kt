@@ -42,6 +42,20 @@ private data class ChatRequest(
     // OpenAI-compatible servers reject outright.
     val model: String? = null,
     val stream: Boolean = false,
+    /**
+     * Passed through to the chat template. `enable_thinking = false` is what actually
+     * silences a reasoning model, measured against Qwen3.5-4B:
+     *
+     *   baseline                  reasoning 1192 chars -> 70 char answer
+     *   enable_thinking = false   reasoning    0 chars -> 32 char answer
+     *   reasoning_budget = 0      reasoning  680 chars -> still deliberating
+     *
+     * `reasoning_budget` only trims; the template kwarg switches it off. Templates
+     * that do not define the variable ignore it, so sending it is safe for models
+     * that never reason.
+     */
+    @SerialName("chat_template_kwargs")
+    val chatTemplateKwargs: Map<String, Boolean>? = null,
     // 512 was not enough. LFM2.5-8B-A1B is a REASONING model: it writes its thinking
     // into a separate reasoning_content field and only then answers. Measured against
     // the real server, it burned all 400 tokens of an earlier budget on reasoning
@@ -202,10 +216,24 @@ class LlamaClient @Inject constructor() {
     )
 
     /** Send the conversation, get one reply. Throws on failure so the caller decides. */
-    suspend fun complete(baseUrl: String, model: String, history: List<ChatMessage>): Completion {
+    suspend fun complete(
+        baseUrl: String,
+        model: String,
+        history: List<ChatMessage>,
+        think: Boolean,
+    ): Completion {
         val response: ChatResponse = client.post("$baseUrl/v1/chat/completions") {
             contentType(ContentType.Application.Json)
-            setBody(ChatRequest(messages = history, model = model.ifEmpty { null }))
+            setBody(
+                ChatRequest(
+                    messages = history,
+                    model = model.ifEmpty { null },
+                    // Only sent when switching thinking OFF. Omitted otherwise so a
+                    // model with no such template variable sees the request it
+                    // would have seen before this feature existed.
+                    chatTemplateKwargs = if (think) null else mapOf("enable_thinking" to false),
+                ),
+            )
         }.body()
         val choice = response.choices.firstOrNull() ?: error("server returned no choices")
         val answer = choice.message.content.trim()

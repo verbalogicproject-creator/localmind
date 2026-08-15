@@ -54,6 +54,25 @@ class ChatViewModel @Inject constructor(
     private val _elapsed = MutableStateFlow<Int?>(null)
     val elapsed: StateFlow<Int?> = _elapsed.asStateFlow()
 
+    /**
+     * Whether to let a reasoning model deliberate.
+     *
+     * Default OFF, which is a judgement about what most turns are. Measured on device:
+     * Qwen3.5-4B produced ~2000 characters of reasoning to answer "hi" -- three screens
+     * of monologue above a one-line reply, at 11 tok/s. Deliberation is worth paying
+     * for on a hard question and absurd on a greeting, and only the user knows which
+     * they are about to ask.
+     *
+     * Deliberately NOT persisted yet. Storing it means a settings table, and adding a
+     * schema version for one boolean is worse than batching it with the other settings
+     * that will want persisting. It resets to off on relaunch, which matches the
+     * default anyway.
+     */
+    private val _think = MutableStateFlow(false)
+    val think: StateFlow<Boolean> = _think.asStateFlow()
+
+    fun toggleThink() { _think.value = !_think.value }
+
     init {
         viewModelScope.launch {
             providers.ensureDefaults()
@@ -121,7 +140,7 @@ class ChatViewModel @Inject constructor(
                     n++
                 }
             }
-            runCatching { llama.complete(target.baseUrl, target.model, history) }
+            runCatching { llama.complete(target.baseUrl, target.model, history, _think.value) }
                 .onSuccess { result ->
                     // Reasoning is kept, not discarded. This app's whole stance is
                     // that the machinery is the product -- on a device where you own

@@ -35,6 +35,7 @@ class MainActivity : ComponentActivity() {
                 val providers by vm.providerList.collectAsStateWithLifecycle()
                 val provider by vm.provider.collectAsStateWithLifecycle()
                 val elapsed by vm.elapsed.collectAsStateWithLifecycle()
+                val think by vm.think.collectAsStateWithLifecycle()
 
                 ChatScreen(
                     messages = messages,
@@ -47,6 +48,8 @@ class MainActivity : ComponentActivity() {
                     provider = provider,
                     onSelectProvider = vm::selectProvider,
                     elapsed = elapsed,
+                    think = think,
+                    onToggleThink = vm::toggleThink,
                 )
             }
         }

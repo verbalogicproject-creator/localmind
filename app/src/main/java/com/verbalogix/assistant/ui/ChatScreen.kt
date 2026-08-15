@@ -69,12 +69,15 @@ fun ChatScreen(
     provider: Provider?,
     onSelectProvider: (Long) -> Unit,
     elapsed: Int?,
+    think: Boolean,
+    onToggleThink: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize()) {
             StatusStrip(
-                status, onRetryStatus, buildLabel, providers, provider, onSelectProvider, elapsed,
+                status, onRetryStatus, buildLabel, providers, provider, onSelectProvider,
+                elapsed, think, onToggleThink,
             )
 
             val listState = rememberLazyListState()
@@ -111,6 +114,8 @@ private fun StatusStrip(
     provider: Provider?,
     onSelectProvider: (Long) -> Unit,
     elapsed: Int?,
+    think: Boolean,
+    onToggleThink: () -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.surface) {
         Column(
@@ -178,6 +183,21 @@ private fun StatusStrip(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 ProviderPicker(providers, provider, onSelectProvider)
+                Spacer(Modifier.width(12.dp))
+                // Sits next to the provider because it is the same kind of decision:
+                // which machine answers, and how hard it works before it does.
+                Text(
+                    text = if (think) "think ON" else "think off",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (think) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                    modifier = Modifier
+                        .clickable { onToggleThink() }
+                        .padding(vertical = 2.dp),
+                )
                 Spacer(Modifier.weight(1f))
                 // Build provenance stays on screen. It belongs to the same thesis as
                 // the rest of this strip -- the build IS part of the machinery -- and
@@ -458,6 +478,8 @@ private fun ChatScreenPreview() {
             provider = previewProviders.first(),
             onSelectProvider = {},
             elapsed = null,
+            think = false,
+            onToggleThink = {},
         )
     }
 }
@@ -477,6 +499,8 @@ private fun ChatScreenOfflinePreview() {
             provider = previewProviders.first(),
             onSelectProvider = {},
             elapsed = null,
+            think = false,
+            onToggleThink = {},
         )
     }
 }
