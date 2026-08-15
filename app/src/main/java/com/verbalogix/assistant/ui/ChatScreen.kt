@@ -139,11 +139,13 @@ private fun StatusStrip(
                     // A spinner alone reads as hung, and the natural response to a hung
                     // app is to kill it -- throwing away a load that had nearly
                     // finished. The count is the whole difference.
-                    Stat(
-                        "model",
-                        status.model ?: "…",
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
+                    if (provider?.isSwap != true) {
+                        Stat(
+                            "model",
+                            status.model ?: "…",
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
                     Spacer(Modifier.weight(1f))
                     Stat(
                         if (status.modelLoaded == false) "loading" else "waiting",
@@ -151,14 +153,25 @@ private fun StatusStrip(
                         live = true,
                     )
                 } else if (status.reachable) {
-                    // The model name is the only unbounded value here, so it is the
-                    // one that must yield. Without weight(fill = false) it steals
-                    // width from the stats after it and "24.4" wraps to two lines.
-                    Stat(
-                        "model",
-                        status.model ?: "loaded",
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
+                    // For a SWAP provider the model name is the id we asked for, which
+                    // the picker already shows one line below -- so printing it here
+                    // said the same thing twice and, worse, did it badly: squeezed
+                    // between "state" and "tok/s" it truncated to "b…" and "q…", which
+                    // is a label conveying nothing at all.
+                    //
+                    // A DIRECT provider is the opposite case: its name comes from the
+                    // server's /props, so it is the only place the actually-loaded
+                    // weights are named, and it is worth the width.
+                    if (provider?.isSwap != true) {
+                        // The only unbounded value here, so the one that must yield.
+                        // Without weight(fill = false) it steals width from the stats
+                        // after it and "24.4" wraps to two lines.
+                        Stat(
+                            "model",
+                            status.model ?: "loaded",
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
                     status.contextSize?.let { Stat("ctx", it.toString()) }
                     // Only a swap endpoint can report this; a direct server holds its
                     // model for as long as the process lives, so the field is null and
