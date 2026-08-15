@@ -155,13 +155,33 @@ jobs:
           # itself from ANDROID_ABI, so those are NOT passed here. The flags below are
           # exactly the argument list from examples/llama.android/lib/build.gradle.kts.
           #
-          # ANDROID_PLATFORM stays at 28, this app's minSdk, though upstream's own
-          # module declares minSdk 33. Measured: it builds at 28, so embedded mode does
-          # not cost us the API 28-32 devices.
+          # ANDROID_PLATFORM=30, AND THE APP'S minSdk STAYS AT 28. Those are different
+          # numbers on purpose, and an earlier version of this comment got it wrong.
+          #
+          # The engine libraries do build at 28 -- that was measured. Upstream's JNI
+          # layer does not:
+          #
+          #   logging.h:26: error: '__android_log_is_loggable' is unavailable:
+          #                        introduced in Android 30
+          #
+          # which is presumably why upstream's own module declares minSdk 33. So the
+          # earlier claim that "embedded mode does not cost us the API 28-32 devices"
+          # was wrong: it costs 28 and 29.
+          #
+          # The response is to scope the cost to the FEATURE rather than the app. The
+          # app keeps minSdk 28 and remains a working client on Android 9 and 10; the
+          # embedded provider is gated at runtime on SDK_INT >= 30 and says so. A
+          # library compiled against API 30 is harmless on API 28 as long as it is
+          # never dlopen'd, and the gate is what guarantees that.
+          #
+          # The alternative -- patching logging.h to drop one call -- would be a
+          # two-line diff against vendored upstream code, and this project has twice
+          # today paid for modifying what it should have adopted. A version bump would
+          # silently drop the patch.
           cmake -S llama.cpp/examples/llama.android/lib/src/main/cpp -B build \
             -DCMAKE_TOOLCHAIN_FILE="${{ steps.tools.outputs.ndk }}/build/cmake/android.toolchain.cmake" \
             -DANDROID_ABI=${{ matrix.abi }} \
-            -DANDROID_PLATFORM=android-28 \
+            -DANDROID_PLATFORM=android-30 \
             -DCMAKE_BUILD_TYPE=Release \
             -DBUILD_SHARED_LIBS=ON \
             -DLLAMA_BUILD_APP=OFF \
@@ -259,4 +279,94 @@ jobs:
             echo "Both numbers decide something. Build time decides whether this can"
             echo "ever live in the push loop; stripped size is what every device"
             echo "downloads, before a single byte of model."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  # -------------------------------------------------------------------------
+  # Publish, so the app has something to consume.
+  #
+  # A GitHub Release rather than a workflow artifact, for one reason: artifacts of a
+  # PUBLIC repo still require authentication to download, and release assets do not.
+  # The app's Gradle build fetches these anonymously, and a build step that needs a
+  # token to obtain its own dependencies is a build step that fails for anyone but us.
+  #
+  # NOT committed to git instead. 19 MB per ABI is small enough to be tempting, but it
+  # is 19 MB PER PIN BUMP, permanently, in a repo that is otherwise a few megabytes --
+  # and every CI clone pays for the whole history forever. A release asset is fetched
+  # once and verified against a digest committed as text.
+  # -------------------------------------------------------------------------
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read the pin
+        id: pin
+        run: |
+          TAG=$(sed -n 's/^tag *= *//p' native/llama.cpp.pin | tr -d ' \r')
+          COMMIT=$(sed -n 's/^commit *= *//p' native/llama.cpp.pin | tr -d ' \r')
+          echo "tag=$TAG"       >> "$GITHUB_OUTPUT"
+          echo "commit=$COMMIT" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: llama-${{ steps.pin.outputs.tag }}-*
+          path: downloaded
+
+      - name: Package one archive per ABI
+        id: pack
+        run: |
+          mkdir -p dist
+          for abi in arm64-v8a x86_64; do
+            src="downloaded/llama-${{ steps.pin.outputs.tag }}-$abi/$abi"
+            if [ ! -d "$src" ]; then
+              echo "::error::No libraries for $abi -- refusing to publish a partial set."
+              exit 1
+            fi
+            # An app built against half a release would package a working arm64 and an
+            # empty x86_64, and the emulator rung would fail with an UnsatisfiedLinkError
+            # that names a missing library rather than a missing RELEASE.
+            #
+            # zip, not tar.gz, and the reason is on the consuming side: the Gradle task
+            # that unpacks this uses java.util.zip from the standard library. Reading a
+            # tar would mean either a dependency or a hand-rolled tar parser inside the
+            # build, and neither is worth it for a container format.
+            ( cd "downloaded/llama-${{ steps.pin.outputs.tag }}-$abi" && zip -qr "$GITHUB_WORKSPACE/dist/$abi.zip" "$abi" )
+          done
+          ( cd dist && sha256sum ./*.zip > SHA256SUMS.txt )
+          cat dist/SHA256SUMS.txt
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: native-${{ steps.pin.outputs.tag }}
+          name: llama.cpp ${{ steps.pin.outputs.tag }} for Android
+          body: |
+            Prebuilt llama.cpp shared libraries and upstream's JNI layer
+            (`libai-chat.so`), for `arm64-v8a` and `x86_64`.
+
+            Built from `ggml-org/llama.cpp@${{ steps.pin.outputs.commit }}` using
+            upstream's own Android CMake configuration, stripped. Consumed by this
+            app's Gradle build and verified against `native/SHA256SUMS.txt`.
+
+            Not intended for general use: the flags are chosen for this app.
+          draft: false
+          prerelease: false
+          files: dist/*
+
+      - name: Say what to commit
+        run: |
+          {
+            echo "### Published \`native-${{ steps.pin.outputs.tag }}\`"
+            echo ""
+            echo "Commit these digests to \`native/SHA256SUMS.txt\` so the Gradle"
+            echo "fetch can verify what it downloaded:"
+            echo ""
+            echo '```'
+            cat dist/SHA256SUMS.txt
+            echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
