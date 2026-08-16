@@ -4,6 +4,7 @@ import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
@@ -31,12 +32,23 @@ class ChatScreenTest {
     @get:Rule val compose = createComposeRule()
 
     private val provider = Provider(1, "LFM2.5 8B", "http://127.0.0.1:8090", model = "lfm-8b")
+
+    /**
+     * A DIRECT server: it holds whatever model it was started with, so the request names
+     * none. `Provider.isSwap` is `model.isNotEmpty()`, which makes this the only fixture
+     * that renders the reported-model stat -- see
+     * [provider_and_reported_model_remain_two_separate_facts].
+     */
+    private val directProvider =
+        Provider(2, "Laptop llama-server", "https://box.local:8080", model = "")
+
     private val ready = ServerStatus(reachable = true, model = "lfm-8b", contextSize = 8192)
 
     private fun chat(
         messages: List<Message>,
         status: ServerStatus = ready,
         sending: Boolean = false,
+        provider: Provider = this.provider,
         onSend: (String) -> Unit = {},
         onOpenProviders: () -> Unit = {},
         onOpenEvidence: (Long) -> Unit = {},
@@ -81,7 +93,10 @@ class ChatScreenTest {
         chat(emptyList(), onSend = { sent = it })
         compose.onNodeWithText("Ask about anything on this device…")
             .performTextInput("hello")
-        compose.onNodeWithText("Send message").performClick()
+        // The send affordance is an Icon; "Send message" is its contentDescription and
+        // it renders no text. `onNodeWithText` does not read contentDescription, so this
+        // could never resolve -- the app's labelling was right and the matcher was not.
+        compose.onNodeWithContentDescription("Send message").performClick()
         assertEquals("hello", sent)
     }
 
@@ -168,9 +183,31 @@ class ChatScreenTest {
     @Test
     fun provider_and_reported_model_remain_two_separate_facts() {
         // They disagree exactly when something is wrong; one label would hide it.
+        //
+        // Asserted against a DIRECT provider, because only a direct provider renders the
+        // stat at all. Written originally against the swap fixture, where ChatScreen
+        // deliberately omits it, this asserted the presence of something the design had
+        // removed on purpose -- so it could only ever fail. The omission is not an
+        // oversight and is not being worked around here: see the paired test below.
+        chat(emptyList(), provider = directProvider)
+        compose.onNodeWithText("Laptop llama-server").assertIsDisplayed()
+        compose.onAllNodesWithText("lfm-8b", substring = true).assertCountEquals(1)
+    }
+
+    /**
+     * The paired direction, which is why the test above had to change rather than be
+     * deleted.
+     *
+     * For a SWAP provider the reported model is the id we asked for, and the provider
+     * link one line below already shows it. Printing it twice was observed on a device
+     * squeezing both copies down to "b…" and "q…" -- labels conveying nothing. So the
+     * stat is omitted, and that omission is now asserted rather than assumed.
+     */
+    @Test
+    fun a_swap_provider_does_not_report_the_model_twice() {
         chat(emptyList())
         compose.onNodeWithText("LFM2.5 8B").assertIsDisplayed()
-        compose.onAllNodesWithText("lfm-8b", substring = true).assertCountEquals(1)
+        compose.onAllNodesWithText("lfm-8b", substring = true).assertCountEquals(0)
     }
 
     @Test

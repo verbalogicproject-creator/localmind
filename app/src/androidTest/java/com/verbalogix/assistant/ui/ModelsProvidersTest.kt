@@ -5,6 +5,8 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -65,7 +67,11 @@ class ModelsProvidersTest {
     @Test
     fun every_provider_is_listed_with_its_url() {
         screen()
-        compose.onNodeWithText("LFM2.5 8B").assertIsDisplayed()
+        // The seeded provider is named TWICE, and that is correct: once by the panel
+        // reporting the ACTIVE endpoint, once as its row in the list. `onNodeWithText`
+        // demands exactly one match, so this assertion could only ever fail -- it was
+        // asserting an incidental node count, not the fact the test is named for.
+        compose.onAllNodesWithText("LFM2.5 8B").onFirst().assertIsDisplayed()
         compose.onNodeWithText("Laptop").assertIsDisplayed()
         // The URL is visible, not hidden behind the name -- when two providers point at
         // the same port this is the only place the difference shows.
@@ -91,7 +97,10 @@ class ModelsProvidersTest {
     fun the_editor_offers_no_delete_for_a_seeded_provider() {
         var deleted: Provider? = null
         screen(onDelete = { deleted = it })
-        compose.onNodeWithText("Edit LFM2.5 8B").performClick()
+        // "Edit <name>" is a contentDescription; the button's visible text is just
+        // "Edit". `onNodeWithText` does not read contentDescription, so the original
+        // form could never resolve a node and never reached the assertion below.
+        compose.onNodeWithContentDescription("Edit LFM2.5 8B").performClick()
         compose.onAllNodesWithText("Delete").assertCountEquals(0)
         assertNull(deleted)
     }
@@ -99,7 +108,7 @@ class ModelsProvidersTest {
     @Test
     fun the_editor_offers_delete_for_a_user_added_provider() {
         screen()
-        compose.onNodeWithText("Edit Laptop").performClick()
+        compose.onNodeWithContentDescription("Edit Laptop").performClick()
         compose.onNodeWithText("Delete").assertIsDisplayed()
     }
 
@@ -109,7 +118,7 @@ class ModelsProvidersTest {
         var savedId: Long? = null
         screen(onSave = { id, _, url, _ -> savedId = id; savedUrl = url })
 
-        compose.onNodeWithText("Edit Laptop").performClick()
+        compose.onNodeWithContentDescription("Edit Laptop").performClick()
         compose.onNodeWithText("https://box.local:8080").performTextClearance()
         compose.onNodeWithText("Base URL").performTextInput("https://box.local:9000/")
         compose.onNodeWithText("Save").performClick()
@@ -128,8 +137,17 @@ class ModelsProvidersTest {
         compose.onNodeWithText("Base URL").performTextInput("http://192.168.1.5:8080")
         // The platform blocks this and the failure is indistinguishable from a server
         // being down, so the dialog has to say which it is.
-        compose.onAllNodesWithText("Android blocks plain http", substring = true)
+        //
+        // MATCH THE HOST, NOT THE PHRASE. This screen carries permanent help text
+        // reading "...Android blocks plain http to anything but this device", so the
+        // bare substring is on screen before anything is typed. The original assertion
+        // matched that help text and would have passed against a validator that did
+        // nothing at all -- it failed here only because the real verdict pushed the
+        // count from 1 to 2. Naming the host is what proves the verdict was computed.
+        compose.onAllNodesWithText("Android blocks plain http to 192.168.1.5", substring = true)
             .assertCountEquals(1)
+        // The other half of the refusal: it offers the fix, rather than only the reason.
+        compose.onNodeWithText("Use https instead").assertIsDisplayed()
     }
 
     /**

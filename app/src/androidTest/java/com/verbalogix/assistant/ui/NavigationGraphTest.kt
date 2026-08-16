@@ -1,5 +1,6 @@
 package com.verbalogix.assistant.ui
 
+import android.content.pm.PackageManager
 import androidx.compose.material3.Text
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.navigation.NavType
@@ -162,8 +163,7 @@ class NavigationGraphTest {
     }
 
     @Test
-    fun no_destination_declares_an_external_deep_link() {
-        // Pairing has no contract yet, so no route may be reachable from another app.
+    fun every_declared_route_is_registered_in_the_graph() {
         graph()
         compose.runOnUiThread {
             for (route in Destinations.ALL) {
@@ -171,6 +171,38 @@ class NavigationGraphTest {
                 assertTrue("route $route is missing from the graph", node != null)
             }
         }
+    }
+
+    /**
+     * Nothing outside this app may address a route.
+     *
+     * This test previously carried that name over the route-registration body now
+     * directly above -- which says nothing whatever about deep links, and would have
+     * passed with a `navDeepLink` on every destination. Pairing has no contract yet, so
+     * external reachability deserves an assertion that can actually fail.
+     *
+     * Reachability is a MANIFEST fact, not a graph fact: a Compose `navDeepLink` is
+     * inert unless an activity exports an intent filter to carry the URI in. So the
+     * graph is the wrong instrument even when pointed correctly -- ask the
+     * PackageManager what is genuinely exported.
+     */
+    @Test
+    fun no_activity_is_exported_except_the_launcher() {
+        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
+        val pm = ctx.packageManager
+        val launcher = pm.getLaunchIntentForPackage(ctx.packageName)?.component?.className
+        @Suppress("DEPRECATION")
+        val activities = pm.getPackageInfo(
+            ctx.packageName,
+            PackageManager.GET_ACTIVITIES,
+        ).activities.orEmpty()
+
+        val exported = activities.filter { it.exported && it.name != launcher }.map { it.name }
+        assertEquals(
+            "no surface may be reachable from another app while pairing has no contract",
+            emptyList<String>(),
+            exported,
+        )
     }
 
     @Test

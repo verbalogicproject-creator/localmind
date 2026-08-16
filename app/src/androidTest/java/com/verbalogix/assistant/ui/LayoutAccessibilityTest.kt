@@ -11,6 +11,7 @@ import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.then
 import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
@@ -161,7 +162,12 @@ class LayoutAccessibilityTest {
                 onOpenProviders = {},
             )
         }
-        compose.onNodeWithTag(TAG_CONTINUE_DIRECT).assertIsDisplayed()
+        // REACHABLE, not already on screen. The whole column -- buttons included -- sits
+        // in a single `verticalScroll`, so at 2.0x on 320dp the primary action is below
+        // the fold and `assertIsDisplayed()` alone fails while the screen is working
+        // exactly as designed. Scrolling to it is what "not pushed off" actually means;
+        // without the scroll this asserted that setup FITS, which it never claimed to.
+        compose.onNodeWithTag(TAG_CONTINUE_DIRECT).performScrollTo().assertIsDisplayed()
     }
 
     @Test
@@ -209,7 +215,19 @@ class LayoutAccessibilityTest {
                 onOpenEvidence = {},
             )
         }
-        val bounds = compose.onNodeWithText("tap to retry").getUnclippedBoundsInRoot()
+        // `useUnmergedTree` IS LOAD-BEARING, and without it this test measured the wrong
+        // thing entirely.
+        //
+        // `onNodeWithText` resolves against the MERGED semantics tree, so it returned an
+        // ANCESTOR of the label -- the status strip itself -- and this asserted on the
+        // STRIP's height. On a device it reported 91.3dp and failed, against a Text that
+        // carries `maxLines = 1` and therefore cannot wrap at all. The measurement was
+        // real; it just described a different node, so the test could neither confirm
+        // the bug nor confirm the fix.
+        //
+        // A geometry assertion is only as honest as the node it names.
+        val bounds = compose.onNodeWithText("tap to retry", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot()
         // DpRect exposes edges, not a height. Subtracting is the documented way.
         val height = bounds.bottom - bounds.top
         assertTrue(
