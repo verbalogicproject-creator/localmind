@@ -10,6 +10,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import androidx.navigation.testing.TestNavHostController
 import androidx.test.platform.app.InstrumentationRegistry
+import com.verbalogix.assistant.BuildConfig
 import com.verbalogix.assistant.ui.nav.ARG_MESSAGE_ID
 import com.verbalogix.assistant.ui.nav.ARG_PACK_ID
 import com.verbalogix.assistant.ui.nav.ARG_PROPOSAL_ID
@@ -197,12 +198,41 @@ class NavigationGraphTest {
             PackageManager.GET_ACTIVITIES,
         ).activities.orEmpty()
 
-        val exported = activities.filter { it.exported && it.name != launcher }.map { it.name }
+        // TOLERATED, NAMED, AND ONLY BECAUSE THEY CANNOT REACH RELEASE.
+        //
+        // Found by this test on its first run, which is the point of writing it: the
+        // debug variant exports two activities this project never declared.
+        // `ui-tooling` contributes PreviewActivity so the IDE can render a @Preview,
+        // and `ui-test-manifest` contributes ComponentActivity so `createComposeRule`
+        // has a host. Both arrive through debugImplementation, and neither exists in
+        // the release build -- which is the build this property is actually about.
+        //
+        // Listed BY NAME rather than skipped by an `androidx.` prefix: "androidx is
+        // fine" would wave through the next exported androidx activity too, and
+        // noticing that is the entire job here.
+        val debugOnlyTooling = setOf(
+            "androidx.compose.ui.tooling.PreviewActivity",
+            "androidx.activity.ComponentActivity",
+        )
+        val exported = activities
+            .filter { it.exported && it.name != launcher && it.name !in debugOnlyTooling }
+            .map { it.name }
         assertEquals(
             "no surface may be reachable from another app while pairing has no contract",
             emptyList<String>(),
             exported,
         )
+
+        // The tolerance above is conditional on the variant, so state the condition.
+        // Instrumented tests normally run against debug; if this suite is ever pointed
+        // at release via testBuildType, the exemption must not silently travel with it.
+        if (!BuildConfig.DEBUG) {
+            assertEquals(
+                "debug-only tooling activities must not exist in a release build",
+                emptyList<String>(),
+                activities.filter { it.name in debugOnlyTooling }.map { it.name },
+            )
+        }
     }
 
     @Test

@@ -119,7 +119,12 @@ class ModelsProvidersTest {
         screen(onSave = { id, _, url, _ -> savedId = id; savedUrl = url })
 
         compose.onNodeWithContentDescription("Edit Laptop").performClick()
-        compose.onNodeWithText("https://box.local:8080").performTextClearance()
+        // Address the FIELD by its label, not by its current value. The URL is on screen
+        // twice once the editor opens -- in the list row behind the dialog, and in the
+        // dialog's own text field -- so matching the value finds two nodes and refuses
+        // to type into either. The label is unambiguous and does not change as the user
+        // edits, which is the more durable handle regardless.
+        compose.onNodeWithText("Base URL").performTextClearance()
         compose.onNodeWithText("Base URL").performTextInput("https://box.local:9000/")
         compose.onNodeWithText("Save").performClick()
 

@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.platform.app.InstrumentationRegistry
 import com.verbalogix.assistant.data.Provider
 import com.verbalogix.assistant.data.ServerStatus
@@ -58,15 +59,23 @@ class SetupReadinessTest {
     @Test
     fun continue_is_enabled_even_with_nothing_reachable() {
         setup(ServerStatus(reachable = false, error = "no server on 127.0.0.1:8090"))
+        // Setup is one scrolling column and the buttons sit at its foot, so on a short
+        // viewport the action is below the fold and `assertIsDisplayed` fails while the
+        // screen works exactly as designed. Note `assertIsEnabled` passed either way --
+        // it does not care about visibility -- so only the second line ever caught this.
         compose.onNodeWithTag(TAG_CONTINUE_DIRECT).assertIsEnabled()
-        compose.onNodeWithTag(TAG_CONTINUE_DIRECT).assertIsDisplayed()
+        compose.onNodeWithTag(TAG_CONTINUE_DIRECT).performScrollTo().assertIsDisplayed()
     }
 
     @Test
     fun continuing_reports_once() {
         var continued = 0
         setup(ServerStatus(reachable = false), onContinue = { continued++ })
-        compose.onNodeWithTag(TAG_CONTINUE_DIRECT).performClick()
+        // Scroll first. `performClick` on a node below the fold does NOT throw -- it
+        // dispatches at a coordinate outside the viewport and nothing happens, so this
+        // failed as `expected:<1> but was:<0>`: a silent miss reported as a wrong count,
+        // which reads like a broken callback rather than a test that never clicked.
+        compose.onNodeWithTag(TAG_CONTINUE_DIRECT).performScrollTo().performClick()
         assertEquals(1, continued)
     }
 
