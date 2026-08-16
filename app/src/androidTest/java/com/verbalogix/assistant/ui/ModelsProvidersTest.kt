@@ -75,7 +75,52 @@ class ModelsProvidersTest {
         compose.onNodeWithText("Laptop").assertIsDisplayed()
         // The URL is visible, not hidden behind the name -- when two providers point at
         // the same port this is the only place the difference shows.
-        compose.onNodeWithText("127.0.0.1:8090").assertIsDisplayed()
+        //
+        // AND THE MODEL ID BESIDE IT, which is the harder half. Observed on a device:
+        // three seeded endpoints all print `127.0.0.1:8090`, because llama-swap serves
+        // them on one port and routes by model name -- so the line meant to tell rows
+        // apart read identically on all three, and the only differing value was absent.
+        compose.onNodeWithText("127.0.0.1:8090 · lfm-8b").assertIsDisplayed()
+    }
+
+    /**
+     * Two endpoints on ONE port stay distinguishable.
+     *
+     * The regression this guards is not hypothetical -- it is what the device showed.
+     * Asserting a single row would pass with the model id hard-coded, so both rows are
+     * checked and they must differ.
+     */
+    @Test
+    fun endpoints_sharing_a_port_are_told_apart_by_model() {
+        val alsoOn8090 = Provider(3, "Qwen3.5 4B", "http://127.0.0.1:8090", model = "qwen-4b")
+        screen(providers = listOf(seeded, alsoOn8090))
+        compose.onNodeWithText("127.0.0.1:8090 · lfm-8b").assertIsDisplayed()
+        compose.onNodeWithText("127.0.0.1:8090 · qwen-4b").assertIsDisplayed()
+    }
+
+    /**
+     * A mock backend says so, in its own line rather than inside an editable name.
+     *
+     * The seeded `Handbook (mock)` row is DEBUG-only and cannot reach a release build,
+     * which is correct and is not sufficient: on a debug build it rendered as an
+     * ordinary endpoint whose only hint was three characters in a display name the user
+     * can edit. A parenthetical is not a label.
+     */
+    @Test
+    fun a_harness_mode_provider_is_labelled_as_a_mock_backend() {
+        val mock = Provider(
+            4, "Handbook (mock)", "http://127.0.0.1:8091",
+            mode = Provider.MODE_HARNESS, model = "handbook-2026",
+        )
+        screen(providers = listOf(seeded, mock))
+        compose.onAllNodesWithText("not a real backend", substring = true).assertCountEquals(1)
+    }
+
+    /** The paired direction: an ordinary endpoint is never labelled a mock. */
+    @Test
+    fun a_direct_provider_is_not_labelled_as_a_mock() {
+        screen(providers = listOf(seeded, userAdded))
+        compose.onAllNodesWithText("not a real backend", substring = true).assertCountEquals(0)
     }
 
     @Test

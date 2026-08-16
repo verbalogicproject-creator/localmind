@@ -316,23 +316,41 @@ private fun ProviderRow(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
-                // The URL is shown, not hidden behind the name. When two providers are
-                // misconfigured to the same port this is the only place that difference
-                // is visible.
+                // THE MODEL ID IS THE DIFFERENTIATOR, NOT THE URL.
+                //
+                // OBSERVED ON A DEVICE: three seeded endpoints -- LFM2.5 8B, Qwen3.5 4B
+                // and Bonsai 8B -- all print `127.0.0.1:8090`, because llama-swap serves
+                // all three on one port and routes by MODEL NAME. So the line intended
+                // to tell rows apart was identical on all of them, and the one value
+                // that actually differs was not on screen anywhere.
+                //
+                // The URL stays: two providers misconfigured to different ports is the
+                // case it was added for, and that case is still real.
                 Text(
-                    provider.baseUrl.removePrefix("http://"),
+                    buildString {
+                        append(provider.baseUrl.removePrefix("http://"))
+                        if (provider.model.isNotEmpty()) append(" · ${provider.model}")
+                    },
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
-                if (seeded) {
-                    // Said plainly, because the alternative is a delete button that
-                    // reports success and reverses itself on next launch.
+                // One meta line instead of two full-width sentences. At 412dp the old
+                // "seeded by this build · cannot be deleted" wrapped mid-phrase onto a
+                // second line on every seeded row, which was most of the list -- density
+                // spent on a fact that never changes.
+                val tags = buildList {
+                    if (provider.mode == Provider.MODE_HARNESS) add(MOCK_TAG)
+                    if (seeded) add("seeded · cannot be deleted")
+                }
+                if (tags.isNotEmpty()) {
                     Text(
-                        "seeded by this build · cannot be deleted",
+                        tags.joinToString("  "),
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
             }
@@ -347,6 +365,18 @@ private fun ProviderRow(
 }
 
 private const val MARK_UNSELECTED = "○"
+
+/**
+ * Says what a harness-mode row IS, rather than leaving it to a name.
+ *
+ * The only such row today is seeded `Handbook (mock)`, and it is seeded in DEBUG builds
+ * only -- so no release build can show this. That is correct and it is not sufficient:
+ * on a debug build the row rendered as an ordinary endpoint whose sole hint was three
+ * characters inside a display name a user could edit. A parenthetical is not a label.
+ *
+ * Written as a claim about the backend, because "mock" alone reads like a nickname.
+ */
+private const val MOCK_TAG = "mock harness · not a real backend"
 
 // Sample content lives here and nowhere else.
 private val previewProviders = listOf(

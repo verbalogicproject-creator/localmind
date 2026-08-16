@@ -268,7 +268,10 @@ class LayoutAccessibilityTest {
                 onOpenEvidence = {},
             )
         }
-        val label = compose.onNodeWithText("v0.0.1-dev-debug · local")
+        // Unmerged, for the reason recorded on the retry-strip assertion below: a bounds
+        // check resolved against the merged tree can return an ancestor and silently
+        // measure the container instead of the text.
+        val label = compose.onNodeWithText("v0.0.1-dev-debug · local", useUnmergedTree = true)
             .getUnclippedBoundsInRoot()
         assertTrue(
             "build label wrapped: ${label.bottom - label.top} tall, expected one line",

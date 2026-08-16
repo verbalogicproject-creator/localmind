@@ -197,12 +197,25 @@ fun SetupReadinessScreen(
                     .testTag(TAG_CONTINUE_DIRECT),
             ) { Text("Continue to chat") }
 
+            // THE ACTION DESCRIBES WHAT IS TRUE NOW.
+            //
+            // OBSERVED ON A DEVICE: with LFM2.5 8B selected, answering, and reporting
+            // `lfm-8b` in the panel directly above, this still read "Choose an endpoint
+            // first" -- instructing the user to do a thing the same screen had just
+            // shown was done. It also read as a preconditon for the button above it,
+            // which was never gated on anything.
+            //
+            // The label is derived from the same `provider` the panel renders, so the
+            // two cannot disagree again.
+            val hasEndpoint = provider != null
             OutlinedButton(
                 onClick = onOpenProviders,
                 modifier = Modifier
                     .fillMaxWidth()
                     .minimumTouchTarget(),
-            ) { Text("Choose an endpoint first") }
+            ) {
+                Text(if (hasEndpoint) "Change endpoint" else "Choose an endpoint")
+            }
 
             // Build provenance stays on screen for the same reason it does in chat: it
             // is what makes a screenshot evidence rather than an impression.

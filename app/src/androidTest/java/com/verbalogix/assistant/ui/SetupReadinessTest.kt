@@ -41,6 +41,15 @@ class SetupReadinessTest {
     private fun setup(
         status: ServerStatus,
         onContinue: () -> Unit = {},
+    ) = render(provider, status, onContinue)
+
+    /** First run, before anything has been configured. */
+    private fun setupWithoutProvider(status: ServerStatus) = render(null, status) {}
+
+    private fun render(
+        provider: Provider?,
+        status: ServerStatus,
+        onContinue: () -> Unit,
     ) {
         compose.setContent {
             LocalmindTheme(darkTheme = true) {
@@ -65,6 +74,29 @@ class SetupReadinessTest {
         // it does not care about visibility -- so only the second line ever caught this.
         compose.onNodeWithTag(TAG_CONTINUE_DIRECT).assertIsEnabled()
         compose.onNodeWithTag(TAG_CONTINUE_DIRECT).performScrollTo().assertIsDisplayed()
+    }
+
+    /**
+     * The secondary action describes what is true now.
+     *
+     * OBSERVED ON A DEVICE: with an endpoint selected, answering, and reporting its
+     * model in the panel directly above, this button read "Choose an endpoint first" --
+     * telling the user to do a thing the same screen had just shown was done, and
+     * implying a precondition on a Continue button that was never gated on anything.
+     */
+    @Test
+    fun a_configured_endpoint_offers_to_change_it_not_to_choose_one() {
+        setup(ServerStatus(reachable = true, model = "lfm-8b"))
+        compose.onNodeWithText("Change endpoint").performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("Choose an endpoint first").assertCountEquals(0)
+    }
+
+    /** The paired direction: with nothing configured, it does ask you to choose. */
+    @Test
+    fun with_no_endpoint_the_action_asks_you_to_choose_one() {
+        setupWithoutProvider(ServerStatus(reachable = false))
+        compose.onNodeWithText("Choose an endpoint").performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("Change endpoint").assertCountEquals(0)
     }
 
     @Test

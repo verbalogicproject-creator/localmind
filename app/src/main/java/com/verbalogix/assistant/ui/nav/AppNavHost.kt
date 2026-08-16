@@ -60,6 +60,24 @@ const val TAG_NAV_CHAT = "nav-chat"
 const val TAG_NAV_SETTINGS = "nav-settings"
 
 /**
+ * What TalkBack says for the Experts tab.
+ *
+ * A FUNCTION, so it can be tested. The nav bar lives inside [AppNavHost], which needs
+ * the Hilt graph to compose at all -- so an assertion about this string would otherwise
+ * have to go through an instrumented test that builds the whole shell, and in practice
+ * would not have been written. This is the part worth pinning: that an unavailable tab
+ * announces WHY and NAMES the operation, rather than announcing only that it is off.
+ *
+ * The capability id is interpolated rather than spelled out, so this string and the
+ * screen behind it cannot drift into naming different operations.
+ */
+internal fun expertsNavLabel(state: CapabilityState): String = when (state) {
+    is CapabilityState.Available -> "Experts"
+    is CapabilityState.Unavailable ->
+        "Experts, unavailable. ${state.reason} Requires ${state.requiredCapability}."
+}
+
+/**
  * The application shell: everything between the theme and a screen.
  *
  * DEEP LINKS ARE DELIBERATELY NOT DECLARED. No `navDeepLink`, no intent filter, no
@@ -82,8 +100,6 @@ fun AppNavHost(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
 
-    val expertsAvailable = capabilities.expertLibrary is CapabilityState.Available
-
     Scaffold(
         modifier = modifier.fillMaxSize(),
         containerColor = MaterialTheme.colorScheme.background,
@@ -101,24 +117,28 @@ fun AppNavHost(
                         label = { Text("Chat") },
                         modifier = Modifier.testTag(TAG_NAV_CHAT),
                     )
-                    // DISABLED RATHER THAN HIDDEN, and it explains itself when tapped.
-                    // Hiding it makes a lapsed pairing indistinguishable from a feature
-                    // that was never built; a dead-silent disabled control is nearly as
-                    // bad, so the tap says why.
+                    // NEITHER HIDDEN NOR DISABLED. Hiding it makes a lapsed pairing
+                    // indistinguishable from a feature that was never built. Disabling
+                    // it is barely better and was what shipped: the comment here claimed
+                    // the tap "says why" while `enabled = expertsAvailable` guaranteed
+                    // the tap did nothing at all. A control that silently absorbs a
+                    // press teaches the user the app is broken, not that a capability is
+                    // missing.
+                    //
+                    // So it stays live and navigates. The destination renders the
+                    // unavailable state and names the operation it is waiting for, which
+                    // is the only honest thing on screen -- `mount.list` is declared by
+                    // the Harness or it is not.
+                    val expertsGate = capabilities.expertLibrary
                     NavigationBarItem(
                         selected = currentRoute == Destinations.EXPERTS,
-                        enabled = expertsAvailable,
                         onClick = { navController.navigateTopLevel(Destinations.EXPERTS) },
                         icon = {},
                         label = { Text("Experts") },
                         modifier = Modifier
                             .testTag(TAG_NAV_EXPERTS)
                             .semantics {
-                                contentDescription = if (expertsAvailable) {
-                                    "Experts"
-                                } else {
-                                    "Experts, unavailable. Knowledge Foundry is not connected."
-                                }
+                                contentDescription = expertsNavLabel(expertsGate)
                             },
                     )
                     NavigationBarItem(
