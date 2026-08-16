@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.unit.dp
 import com.verbalogix.assistant.ui.components.AmberPanel
 import com.verbalogix.assistant.ui.components.EmptyNotice
@@ -206,15 +207,42 @@ private fun EvidenceCard(entry: EvidenceEntry) {
                 )
             }
 
-            // A QUOTATION. Monospace and offset so it reads as material from elsewhere
-            // rather than as the app speaking. It is never parsed, never interpreted, and
-            // never given to anything that could act on it.
-            Text(
-                entry.text,
-                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.padding(start = 8.dp),
-            )
+            if (entry.text.isBlank()) {
+                // AN ABSENCE, STATED. The Foundry can return an item it genuinely reached
+                // -- through the graph channel, typically -- whose `selected_text` is
+                // empty: the record ranked, its provenance is real, and there is nothing
+                // to quote from it. The golden's second item is exactly this, so this is
+                // an observed case rather than a defensive one.
+                //
+                // Rendering it through the quotation block leaves an empty monospace gap
+                // between a locator and a rank line, which reads as a rendering failure
+                // and invites the user to distrust the rest of the card. Saying so costs
+                // one line and is the difference between "nothing was returned" and
+                // "something is broken".
+                //
+                // THE CARD STAYS. Dropping the item would hide something the retrieval
+                // found; its locator, ranks and graph path are still evidence of what the
+                // expert holds, just not a passage to read. Italic and not monospace, so
+                // it cannot be mistaken for a quotation of an empty string.
+                Text(
+                    "No quoted text was included for this item.",
+                    style = MaterialTheme.typography.bodySmall,
+                    fontStyle = FontStyle.Italic,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            } else {
+                // A QUOTATION. Monospace and offset so it reads as material from elsewhere
+                // rather than as the app speaking. It is never parsed, never interpreted,
+                // and never given to anything that could act on it.
+                Text(
+                    entry.text,
+                    style = MaterialTheme.typography.bodyMedium
+                        .copy(fontFamily = FontFamily.Monospace),
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(start = 8.dp),
+                )
+            }
 
             for (source in entry.sources) {
                 Text(

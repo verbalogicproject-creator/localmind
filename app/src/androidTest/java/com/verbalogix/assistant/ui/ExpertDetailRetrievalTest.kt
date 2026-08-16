@@ -90,7 +90,7 @@ class ExpertDetailRetrievalTest {
         supersededContentSha256 = null,
     )
 
-    /** Shaped like the golden's first item, small enough to assert against. */
+    /** Shaped like the golden's two items, small enough to assert against. */
     private fun evidence() = RetrievalEvidence(
         answerability = "supported",
         disposition = "succeeded",
@@ -118,6 +118,32 @@ class ExpertDetailRetrievalTest {
                 globalFusedRank = 1,
                 lexicalRank = 1,
                 graphRank = null,
+            ),
+            EvidenceEntry(
+                // THE GOLDEN'S SECOND ITEM, shaped as the server actually returns it:
+                // reached through the graph channel, with a real locator, a real rank and
+                // a graph path -- and no quotable text at all.
+                evidenceId = "kf:evidence:${"d4".repeat(32)}",
+                packId = packId,
+                releaseId = releaseId,
+                kind = "source",
+                text = "",
+                knowledgeStatus = "supported",
+                uncertainty = "not_observed",
+                sources = listOf(
+                    SourceRef(
+                        sourceId = "kf:source:${"d5".repeat(32)}",
+                        logicalLocator = "README.md",
+                        sensitivity = "internal",
+                        contentSha256 = "d6".repeat(32),
+                    ),
+                ),
+                graphPathIds = listOf("kf:graph-path:${"d7".repeat(32)}"),
+                contradictionIds = emptyList(),
+                packFusedRank = 2,
+                globalFusedRank = 2,
+                lexicalRank = null,
+                graphRank = 1,
             ),
         ),
         contradictions = emptyList(),
@@ -262,6 +288,28 @@ class ExpertDetailRetrievalTest {
         }
         compose.onNodeWithText("Localmind has not written an answer", substring = true)
             .performScrollTo().assertIsDisplayed()
+    }
+
+    /**
+     * AN EMPTY QUOTATION IS NOT A BLANK SPACE.
+     *
+     * The Foundry returns graph-reached items whose `selected_text` is empty. Rendering
+     * that through the quotation block leaves a gap between a locator and a rank line that
+     * reads as a rendering failure -- and a user who thinks the screen is broken has no
+     * reason to trust the cards that did render.
+     */
+    @Test
+    fun an_item_with_no_quoted_text_says_so_instead_of_showing_a_gap() {
+        screen()
+        compose.onNodeWithTag(TAG_EXPERT_QUERY_FIELD).performScrollTo()
+        compose.onNodeWithTag(TAG_EXPERT_QUERY_FIELD).performTextInput("Project Expert")
+        compose.onNodeWithTag(TAG_EXPERT_QUERY_SUBMIT).performScrollTo().performClick()
+
+        compose.onNodeWithText("No quoted text was included for this item.")
+            .performScrollTo().assertIsDisplayed()
+        // The card is kept, not dropped: what it does carry is still evidence.
+        compose.onNodeWithText("README.md · internal").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("graph paths: 1").performScrollTo().assertIsDisplayed()
     }
 
     // ── the gate ────────────────────────────────────────────────────────────

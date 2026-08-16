@@ -87,6 +87,24 @@ class RetrievalMappingTest {
         }
     }
 
+    /**
+     * An item the server returned WITHOUT any quotable text.
+     *
+     * Not hypothetical and not a defensive check: the golden's second item was reached
+     * through the graph channel and carries an empty `selected_text` alongside a real
+     * locator, a real rank and a graph path. The mapper must neither drop it nor
+     * substitute a placeholder -- what it holds is still evidence of what the expert
+     * knows, and inventing text for it would be inventing evidence.
+     */
+    @Test
+    fun an_item_with_no_quotable_text_keeps_everything_else_it_carries() {
+        val second = evidence().items[1]
+        assertTrue("the golden's second item has no selected_text", second.text.isBlank())
+        assertTrue(second.graphPathIds.isNotEmpty())
+        assertTrue(second.sources.isNotEmpty())
+        assertTrue(second.packFusedRank >= 1)
+    }
+
     // ── the shapes the golden does not carry ────────────────────────────────
 
     @Test
