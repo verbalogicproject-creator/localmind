@@ -31,6 +31,7 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
+import com.verbalogix.assistant.data.ModelDisplayName
 import com.verbalogix.assistant.data.Provider
 import com.verbalogix.assistant.data.ServerStatus
 import com.verbalogix.assistant.ui.EndpointDialog
@@ -102,6 +103,15 @@ fun ModelsProvidersScreen(
                 style = MaterialTheme.typography.titleLarge,
                 color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.semantics { heading() },
+            )
+            // FACTUAL, not promotional. It says what the screen manages and repeats the
+            // one promise the whole app rests on -- that it starts nothing -- rather than
+            // describing a capability. The Stitch subtitle here mentions "external API
+            // connections", which this build does not have and must not imply.
+            Text(
+                "Endpoints this app talks to. It starts none of them.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
             ActiveStatusPanel(provider = provider, status = status, onRetry = onRetryStatus)
@@ -284,7 +294,18 @@ private fun ProviderRow(
     seeded: Boolean,
     onSelect: () -> Unit,
     onEdit: () -> Unit,
+    /**
+     * The server's own label for this model, already sanitised, or null.
+     *
+     * EPHEMERAL AND NEVER PERSISTED. llama-swap reports a name per model, so a rename in
+     * its config shows up here without an app change -- but it never overwrites
+     * `provider.name`, which is the user's configuration. Identity is `provider.model`
+     * either way: a label is not a key, and a server-side rename must not repoint a
+     * selection at a different model.
+     */
+    serverName: String? = null,
 ) {
+    val displayName = ModelDisplayName.resolve(serverName, provider.name)
     AmberPanel(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier
@@ -310,7 +331,7 @@ private fun ProviderRow(
             )
             Column(Modifier.weight(1f)) {
                 Text(
-                    provider.name,
+                    displayName,
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface,
                     maxLines = 1,

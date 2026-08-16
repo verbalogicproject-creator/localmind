@@ -2,6 +2,11 @@ package com.verbalogix.assistant.ui.nav
 
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.List
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -113,7 +118,16 @@ fun AppNavHost(
                     NavigationBarItem(
                         selected = currentRoute == Destinations.CHAT,
                         onClick = { navController.navigateTopLevel(Destinations.CHAT) },
-                        icon = {},
+                        // ICONS ALONGSIDE LABELS, never instead of them. The label is what
+                        // makes a tab unambiguous; the icon is what makes the bar scannable
+                        // and gives the selected tab a second, non-colour cue.
+                        //
+                        // Drawn from material-icons-CORE, which has no speech bubble. The
+                        // extended artifact would supply one and is a large dependency to
+                        // add for a single glyph, so Chat takes the compose/write pencil --
+                        // the place you write to the model -- rather than an envelope,
+                        // which would read as email.
+                        icon = { Icon(Icons.Filled.Create, contentDescription = null) },
                         label = { Text("Chat") },
                         modifier = Modifier.testTag(TAG_NAV_CHAT),
                     )
@@ -133,7 +147,7 @@ fun AppNavHost(
                     NavigationBarItem(
                         selected = currentRoute == Destinations.EXPERTS,
                         onClick = { navController.navigateTopLevel(Destinations.EXPERTS) },
-                        icon = {},
+                        icon = { Icon(Icons.AutoMirrored.Filled.List, contentDescription = null) },
                         label = { Text("Experts") },
                         modifier = Modifier
                             .testTag(TAG_NAV_EXPERTS)
@@ -144,7 +158,7 @@ fun AppNavHost(
                     NavigationBarItem(
                         selected = currentRoute == Destinations.MODELS_PROVIDERS,
                         onClick = { navController.navigateTopLevel(Destinations.MODELS_PROVIDERS) },
-                        icon = {},
+                        icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
                         label = { Text("Providers") },
                         modifier = Modifier.testTag(TAG_NAV_SETTINGS),
                     )

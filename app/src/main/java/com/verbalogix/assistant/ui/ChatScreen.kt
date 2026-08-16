@@ -530,7 +530,12 @@ private fun MessageRow(message: Message, onOpenEvidence: (Long) -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Text(
-                    text = message.content,
+                    // `backticks` become monospace and nothing else does -- see
+                    // [InlineCode]. Not a Markdown renderer: every construct added is
+                    // another way for generated text to control what the screen looks
+                    // like, and only the font family changes here, so a code span cannot
+                    // repaint itself to imitate application chrome.
+                    text = InlineCode.annotate(message.content),
                     style = MaterialTheme.typography.bodyMedium,
                     color = when (message.role) {
                         "error" -> MaterialTheme.colorScheme.error
