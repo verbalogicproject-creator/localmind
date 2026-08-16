@@ -1,0 +1,41 @@
+{
+  "implemented_stage3b": [
+    {"operation":"harness.capabilities","route":"GET /v1/capabilities","screens":["all"]},
+    {"operation":"state.initialize","route":"POST /v1/state/initialize","screens":["studio_dashboard","localmind_setup_readiness"]},
+    {"operation":"pack.verify","route":"POST /v1/packs/verify","screens":["studio_build_sign_final"]},
+    {"operation":"pack.install","route":"POST /v1/packs/install","screens":["studio_build_sign_final"]},
+    {"operation":"mount.list","route":"GET /v1/mounts","screens":["studio_dashboard"]},
+    {"operation":"mount.activate","route":"POST /v1/mounts/activate","screens":[]},
+    {"operation":"mount.deactivate","route":"POST /v1/mounts/deactivate","screens":[]},
+    {"operation":"mount.update","route":"POST /v1/mounts/update","screens":[]},
+    {"operation":"mount.rollback","route":"POST /v1/mounts/rollback","screens":[]},
+    {"operation":"query.retrieve","route":"POST /v1/queries","screens":["studio_knowledge_explorer_final","localmind_evidence_drawer"]},
+    {"operation":"expert.create.plan","route":"POST /v1/experts/create-plan","screens":["studio_create_expert_wizard"]},
+    {"operation":"expert.refresh.plan","route":"POST /v1/experts/refresh-plan","screens":["studio_project_memory_final"]},
+    {"operation":"expert.audit","route":"POST /v1/experts/audit","screens":["studio_receipts_audit"]}
+  ],
+  "implemented_stage3c": [
+    {"operation":"expert.catalog.list","route":"GET /v1/experts","screens":["localmind_expert_library_final"]},
+    {"operation":"expert.release.inspect","route":"POST /v1/experts/releases/inspect","screens":["localmind_expert_detail_final"]},
+    {"control_plane":"localmind-pair-exchange-refresh","routes":["POST /v1/tokens/exchange","POST /v1/tokens/refresh"],"screens":["localmind_setup_readiness"]}
+  ],
+  "planned_not_implemented": [
+    {"capability":"source-governance-and-allowlisted-acquisition","screens":["studio_source_governance_final"]},
+    {"capability":"pipeline-job-orchestration","screens":["studio_mining_extraction_final"]},
+    {"capability":"proposal-review-and-promotion","screens":["studio_review_promotion"]},
+    {"capability":"evaluation-execution","screens":["studio_evaluation_final"]},
+    {"capability":"pack-build-sign-and-export","screens":["studio_build_sign_final"]},
+    {"capability":"project-memory-capture-and-context","screens":["studio_project_memory_final"]},
+    {"capability":"canonical-assistant-turn","screens":["localmind_chat"]},
+    {"capability":"governed-tool-proposal-decision-receipt","screens":["localmind_tool_approval_final"]}
+  ],
+  "rules": [
+    "clients-use-canonical-operation-responses",
+    "screens-check-capabilities-before-enabling-actions",
+    "planned-bindings-have-no-runtime-success-state",
+    "browser-credentials-never-enter-javascript-readable-storage",
+    "localmind-never-parses-or-versions-kpacks"
+    ,"localmind-access-is-read-only-and-starts-nothing-by-itself"
+  ],
+  "schema": "knowledge-foundry-ui-api-bindings/1.0"
+}

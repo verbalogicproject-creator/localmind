@@ -14,23 +14,39 @@ import org.junit.Test
  * meaning it does not share -- and trust state and compatibility are precisely the
  * fields where a silent partial read yields a safe-looking answer that is wrong.
  *
- * Every test here asserts a REFUSAL, which is why they can exist before the Foundry's
- * golden responses do. Acceptance cannot be tested honestly yet, and the one test that
- * touches it asserts only that nothing is accepted today.
+ * Almost every test here asserts a REFUSAL, which is why this file predates the Foundry's
+ * golden responses. Acceptance is now testable for three ids and is proved where it
+ * belongs -- against the server's own bytes, in `HarnessDecoderGoldenTest`. What stays
+ * here is the membership rule: nothing enters `ACCEPTED` without a decoder and a golden.
  */
 class SchemaNegotiationTest {
 
+    /**
+     * Nothing is accepted without a decoder AND a server-emitted golden behind it.
+     *
+     * This assertion previously read `ACCEPTED.isEmpty()`, and it fired the moment
+     * Foundry 0.3.2 landed -- which is exactly what it was for. The precondition is now
+     * genuinely satisfied for three ids, so the tripwire moves from "nothing" to "only
+     * these", and the rule it protects is unchanged: no id enters this set without bytes
+     * from the server to verify it against.
+     */
     @Test
-    fun nothing_is_accepted_until_a_decoder_and_a_golden_payload_exist() {
-        // Deliberate, and the most load-bearing assertion in this file. Foundry 0.3.2 is
-        // introducing explicit /3.0 negotiation; adding an entry to ACCEPTED before the
-        // decoder behind it exists would claim this client can read documents it has
-        // never seen an example of. This test fails the moment someone widens the set
-        // without revisiting it, which is the point.
-        assertTrue(
-            "widening ACCEPTED requires a decoder and a golden payload in the same change",
-            SchemaNegotiation.ACCEPTED.isEmpty(),
+    fun only_versions_with_a_decoder_and_a_golden_are_accepted() {
+        assertEquals(
+            setOf(
+                "knowledge-foundry-operation-response/3.0",
+                "knowledge-foundry-capabilities/3.0",
+                "knowledge-foundry-expert-catalog/3.0",
+            ),
+            SchemaNegotiation.ACCEPTED,
         )
+    }
+
+    @Test
+    fun expert_release_detail_stays_out_until_a_golden_exists_for_it() {
+        // The one id with a closed schema, a transcribable shape, and no server response
+        // to check it against. Admitting it would be the exact mistake this file guards.
+        assertFalse(SchemaIds.EXPERT_RELEASE_DETAIL in SchemaNegotiation.ACCEPTED)
     }
 
     @Test

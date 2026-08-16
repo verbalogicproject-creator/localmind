@@ -23,18 +23,26 @@ object SchemaNegotiation {
     /**
      * The payload versions this build understands.
      *
-     * EMPTY ON PURPOSE, TODAY. Foundry 0.3.2 is introducing explicit `/3.0` negotiation
-     * along with `expert.catalog.list` and `expert.release.inspect`, and the golden
-     * responses do not exist yet. Adding `/2.0` here would claim this client can read
-     * documents it has never seen a single example of, and the decoders that would have
-     * to honour that claim are not written.
+     * ONE ENTRY PER (CLOSED SCHEMA + STRICT DECODER + SERVER-EMITTED GOLDEN). All three
+     * are required, and the third is the one that is tempting to skip. A decoder verified
+     * only against payloads its author invented is verified against its author's
+     * assumptions -- this project has already paid for that lesson in a different form.
      *
-     * The consequence is deliberate and correct: every negotiation refuses today, and
-     * the app shows an unavailable state with a reason. That is the same answer it gives
-     * now, reached honestly. When the schemas and golden payloads land, this set gains
-     * entries in the same commit as the decoders that back them -- never before.
+     * `expert-release-detail/3.0` is therefore ABSENT despite having a closed schema and
+     * a transcribable shape: no server-emitted detail response exists yet. Expert Detail
+     * consequently refuses, with a reason, which is the honest state rather than a
+     * limitation to work around. See [SchemaIds.EXPERT_RELEASE_DETAIL].
+     *
+     * The catalog entry is admitted on the strength of an EMPTY golden. That verifies the
+     * envelope, the negotiation, the operation correlation and the catalog frame -- but
+     * not one release summary, because the golden contains none. A populated Expert
+     * Library is not verified by anything here and must not be claimed.
      */
-    val ACCEPTED: Set<String> = emptySet()
+    val ACCEPTED: Set<String> = setOf(
+        SchemaIds.OPERATION_RESPONSE,
+        SchemaIds.CAPABILITIES,
+        SchemaIds.EXPERT_CATALOG,
+    )
 
     /** The `schema` field's shape, checked before its value is compared. */
     private val WELL_FORMED = Regex("""^[a-z0-9-]+/[0-9]+\.[0-9]+$""")
