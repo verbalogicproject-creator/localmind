@@ -1,0 +1,32 @@
+{
+  "clients": [
+    {
+      "client": "localmind-android",
+      "routes": [
+        {"component":"SetupReadinessScreen","implementation":"required","route":"setup/readiness","screen":"localmind_setup_readiness"},
+        {"component":"ChatScreen","implementation":"observed-existing","route":"chat","screen":"localmind_chat"},
+        {"component":"EvidenceDrawer","implementation":"required-additive-receipt-storage","route":"chat/message/{messageId}/evidence","screen":"localmind_evidence_drawer"},
+        {"component":"ExpertLibraryScreen","implementation":"capability-gated-until-stage3b-runtime","route":"experts","screen":"localmind_expert_library_final"},
+        {"component":"ExpertDetailScreen","implementation":"capability-gated-until-stage3b-runtime","route":"experts/{packId}/{version}","screen":"localmind_expert_detail_final"},
+        {"component":"ModelsProvidersScreen","implementation":"required-refactor-existing-provider-ui","route":"models-providers","screen":"localmind_models_providers_final"},
+        {"component":"ToolApprovalSheet","implementation":"disabled-until-governed-tool-contract","route":"sessions/{sessionId}/tool-proposals/{proposalId}","screen":"localmind_tool_approval_final"}
+      ]
+    },
+    {
+      "client": "knowledge-studio-web",
+      "routes": [
+        {"component":"StudioDashboard","route":"/studio","screen":"studio_dashboard"},
+        {"component":"CreateExpertWizard","route":"/studio/experts/new","screen":"studio_create_expert_wizard"},
+        {"component":"SourceGovernance","route":"/studio/projects/{projectId}/governance","screen":"studio_source_governance_final"},
+        {"component":"MiningPipeline","route":"/studio/projects/{projectId}/pipeline","screen":"studio_mining_extraction_final"},
+        {"component":"PromotionReview","route":"/studio/review/{proposalId}","screen":"studio_review_promotion"},
+        {"component":"KnowledgeExplorer","route":"/studio/explorer","screen":"studio_knowledge_explorer_final"},
+        {"component":"EvaluationRun","route":"/studio/evaluations/{evaluationId}","screen":"studio_evaluation_final"},
+        {"component":"BuildSign","route":"/studio/build","screen":"studio_build_sign_final"},
+        {"component":"ProjectMemory","route":"/studio/project-memory","screen":"studio_project_memory_final"},
+        {"component":"ReceiptsAudit","route":"/studio/receipts","screen":"studio_receipts_audit"}
+      ]
+    }
+  ],
+  "schema": "knowledge-foundry-ui-route-manifest/1.0"
+}

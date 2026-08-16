@@ -65,6 +65,22 @@ interface MessageDao {
     @Query("SELECT * FROM messages ORDER BY id")
     suspend fun all(): List<Message>
 
+    /**
+     * One message, for the evidence drawer.
+     *
+     * A Flow rather than a suspend read, so the drawer survives process recreation by
+     * re-observing rather than by having state handed back to it. Nullable because the
+     * id arrives as a route argument: it can address a row that has since been cleared,
+     * and "that message is gone" is a state to render rather than a case that throws.
+     *
+     * ADDING A @Query DOES NOT TOUCH THE SCHEMA. Room derives the schema from @Entity
+     * classes, so there is no version bump and no migration here -- which is precisely
+     * why the evidence surface could be built without going near data already sitting
+     * on devices.
+     */
+    @Query("SELECT * FROM messages WHERE id = :id")
+    fun observeById(id: Long): Flow<Message?>
+
     @Insert
     suspend fun insert(message: Message): Long
 

@@ -1,0 +1,53 @@
+{
+  "global_states": [
+    "loading",
+    "empty",
+    "ready",
+    "degraded",
+    "unavailable",
+    "unauthorized",
+    "offline",
+    "queued",
+    "running",
+    "awaiting-review",
+    "cancelled",
+    "failed",
+    "complete"
+  ],
+  "grounding_states": [
+    "retrieving",
+    "generating",
+    "grounded",
+    "abstained",
+    "refused",
+    "failed",
+    "receipt-missing"
+  ],
+  "governance_states": [
+    "candidate",
+    "quarantined",
+    "accepted",
+    "corrected",
+    "rejected",
+    "tombstoned"
+  ],
+  "lifecycle_states": [
+    "verified-uninstalled",
+    "installed-inactive",
+    "mounted",
+    "update-available",
+    "trust-revoked",
+    "incompatible",
+    "rollback-available"
+  ],
+  "presentation_rules": [
+    "grounded-success-requires-receipt-and-citations",
+    "missing-receipt-is-visible-error",
+    "abstention-refusal-failure-are-not-interchangeable",
+    "operational-values-come-only-from-runtime",
+    "unavailable-actions-render-reason-and-required-capability",
+    "protected-actions-require-preview-confirmation-and-receipt",
+    "private-or-restricted-source-bodies-never-enter-generic-export"
+  ],
+  "schema": "knowledge-foundry-ui-state-catalog/1.0"
+}

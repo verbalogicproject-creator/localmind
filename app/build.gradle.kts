@@ -362,6 +362,7 @@ dependencies {
     implementation(libs.hilt.android)
     ksp(libs.hilt.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
+    implementation(libs.androidx.navigation.compose)
 
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
@@ -385,6 +386,10 @@ dependencies {
     androidTestImplementation(libs.room.testing)
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.ui.test.junit4)
+    // TestNavHostController. Asserting "the Evidence screen appeared" is weaker than
+    // asserting "the back stack is at chat/message/7/evidence" -- the first passes if
+    // some other route happens to render the same text.
+    androidTestImplementation(libs.androidx.navigation.testing)
 
     debugImplementation(libs.androidx.ui.tooling)
     debugImplementation(libs.androidx.ui.test.manifest)

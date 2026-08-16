@@ -1,0 +1,43 @@
+{
+  "accessibility": {
+    "android_minimum_target_dp": 48,
+    "browser_minimum_target_px": 44,
+    "focus": "visible-high-contrast-ring",
+    "graph_alternative": "required-list-or-table",
+    "motion": "reduced-motion-respected",
+    "status": "text-and-icon-never-color-only"
+  },
+  "color": {
+    "accent_active": "#f4b942",
+    "accent_dim": "#f8bd45",
+    "accent_primary": "#ffd999",
+    "background": "#131312",
+    "canvas": "#0e0e0d",
+    "error": "#ffb4ab",
+    "error_container": "#93000a",
+    "outline": "#4f4535",
+    "outline_variant": "#3b362c",
+    "surface": "#181714",
+    "surface_high": "#2a2a29",
+    "surface_highest": "#353533",
+    "surface_low": "#1c1c1a",
+    "surface_raised": "#211f1a",
+    "text_muted": "#d4c4af",
+    "text_primary": "#e5e2e0"
+  },
+  "density": {
+    "base_unit_px": 8,
+    "desktop_margin_px": 32,
+    "mobile_margin_px": 16,
+    "panel_padding_px": 24
+  },
+  "radii_px": [4, 5, 8, 12, 14],
+  "schema": "knowledge-foundry-ui-design-tokens/1.0",
+  "typography": {
+    "android_body": "FontFamily.Default",
+    "android_mono": "FontFamily.Monospace",
+    "web_body": "system-ui, sans-serif",
+    "web_mono": "ui-monospace, monospace"
+  },
+  "visual_direction": "dense-flat-amber-technical-no-decorative-gradients"
+}

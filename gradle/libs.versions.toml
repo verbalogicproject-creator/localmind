@@ -19,6 +19,17 @@ composeBom = "2025.09.01"
 
 hilt = "2.59"
 hiltNavCompose = "1.2.0"
+# Navigation Compose is DECLARED EXPLICITLY even though hilt-navigation-compose
+# already drags it onto the classpath transitively. This repo has been bitten by
+# exactly that shape twice -- material-icons-core stopped being transitive from
+# material3, and kotlinx-serialization-json arrived only via ktor -- so a symbol
+# the source imports directly gets its own line. Preflight check 050 enforces it:
+# it maps `import androidx.navigation.compose.*` to a required
+# `navigation-*compose` artifact and fails the run when one is missing.
+#
+# 2.9.8 is the newest STABLE. 2.10.0 exists only as rc01, and nothing here is
+# ever a pre-release for the same reason nothing here is a range.
+navigationCompose = "2.9.8"
 room = "2.8.3"
 # androidx.sqlite bundled: Google-first-party bundled SQLite, so FTS5 is
 # available regardless of the device's system SQLite (which does not compile
@@ -61,6 +72,11 @@ androidx-material-icons-core = { group = "androidx.compose.material", name = "ma
 hilt-android = { group = "com.google.dagger", name = "hilt-android", version.ref = "hilt" }
 hilt-compiler = { group = "com.google.dagger", name = "hilt-compiler", version.ref = "hilt" }
 androidx-hilt-navigation-compose = { group = "androidx.hilt", name = "hilt-navigation-compose", version.ref = "hiltNavCompose" }
+androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
+# NavHost under test needs a NavController the test can drive and assert on.
+# navigation-testing supplies TestNavHostController; without it an instrumented
+# test can only observe what happened to be rendered, not which route is current.
+androidx-navigation-testing = { group = "androidx.navigation", name = "navigation-testing", version.ref = "navigationCompose" }
 
 room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }

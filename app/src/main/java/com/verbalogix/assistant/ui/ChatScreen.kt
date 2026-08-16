@@ -7,10 +7,12 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -19,9 +21,6 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -36,7 +35,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
@@ -59,6 +59,15 @@ import com.verbalogix.assistant.ui.theme.LocalmindTheme
  * while Compose is constraint-based.
  *
  * Every value is a PARAMETER. Sample content lives in @Preview and nowhere else.
+ *
+ * WHAT LEFT THIS FILE. The provider picker, the endpoint editor and the delete
+ * affordance moved to `ModelsProvidersScreen`. They were private internals here,
+ * reachable only through a dropdown inside the status strip -- a component whose job is
+ * to REPORT, not to configure. What stays is a compact, tappable status for the active
+ * provider, which is the one provider fact a conversation needs on screen.
+ *
+ * The chat path itself is untouched: same transcript, same composer, same send path,
+ * same grounding rendering.
  */
 @Composable
 fun ChatScreen(
@@ -68,36 +77,22 @@ fun ChatScreen(
     onSend: (String) -> Unit,
     onRetryStatus: () -> Unit,
     buildLabel: String,
-    providers: List<Provider>,
     provider: Provider?,
-    onSelectProvider: (Long) -> Unit,
-    onSaveEndpoint: (Long?, String, String, String) -> Unit,
-    onDeleteEndpoint: (Provider) -> Unit,
-    isDefaultProvider: (Provider) -> Boolean,
     elapsed: Int?,
     think: Boolean,
     onToggleThink: () -> Unit,
+    onOpenProviders: () -> Unit,
+    onOpenEvidence: (Long) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    // Which endpoint the editor is open on, and whether it is open at all. Two flags
-    // rather than one nullable, because "add" is `open with no target` and collapsing
-    // the two would make it indistinguishable from closed.
-    var editorOpen by remember { mutableStateOf(false) }
-    var editorTarget by remember { mutableStateOf<Provider?>(null) }
-
     Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize()) {
             StatusStrip(
                 status = status,
                 onRetry = onRetryStatus,
                 buildLabel = buildLabel,
-                providers = providers,
                 provider = provider,
-                onSelectProvider = onSelectProvider,
-                onEditEndpoint = { target ->
-                    editorTarget = target
-                    editorOpen = true
-                },
+                onOpenProviders = onOpenProviders,
                 elapsed = elapsed,
                 think = think,
                 onToggleThink = onToggleThink,
@@ -115,10 +110,7 @@ fun ChatScreen(
                     status = status,
                     provider = provider,
                     modifier = Modifier.weight(1f).fillMaxWidth(),
-                    onAddEndpoint = {
-                        editorTarget = null
-                        editorOpen = true
-                    },
+                    onAddEndpoint = onOpenProviders,
                 )
             } else {
                 LazyColumn(
@@ -127,29 +119,14 @@ fun ChatScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(16.dp),
                     verticalArrangement = Arrangement.spacedBy(24.dp),
                 ) {
-                    items(messages, key = { it.id }) { message -> MessageRow(message) }
+                    items(messages, key = { it.id }) { message ->
+                        MessageRow(message, onOpenEvidence)
+                    }
                 }
             }
 
             Composer(sending = sending, onSend = onSend)
         }
-    }
-
-    if (editorOpen) {
-        val target = editorTarget
-        EndpointDialog(
-            editing = target,
-            canDelete = target != null && !isDefaultProvider(target),
-            onDismiss = { editorOpen = false },
-            onSave = { id, name, url, model ->
-                editorOpen = false
-                onSaveEndpoint(id, name, url, model)
-            },
-            onDelete = {
-                editorOpen = false
-                target?.let(onDeleteEndpoint)
-            },
-        )
     }
 }
 
@@ -236,10 +213,8 @@ private fun StatusStrip(
     status: ServerStatus,
     onRetry: () -> Unit,
     buildLabel: String,
-    providers: List<Provider>,
     provider: Provider?,
-    onSelectProvider: (Long) -> Unit,
-    onEditEndpoint: (Provider?) -> Unit,
+    onOpenProviders: () -> Unit,
     elapsed: Int?,
     think: Boolean,
     onToggleThink: () -> Unit,
@@ -309,12 +284,33 @@ private fun StatusStrip(
                 } else {
                     // The most likely state on first run, so it gets a real
                     // instruction rather than a red dot.
-                    Stat("server", status.error ?: "not reachable", error = true)
-                    Spacer(Modifier.weight(1f))
+                    //
+                    // weight(fill = false) IS LOAD-BEARING, and its absence was visible
+                    // on a real device: the error text is a whole URL ("no server on
+                    // http://127.0.0.1:8090"), it is the only unbounded value in this
+                    // row, and without a weight it takes every pixel it wants. That
+                    // left "tap to retry" with about one character of width, so it
+                    // wrapped to eleven lines down the right-hand edge and dragged the
+                    // strip's height with it.
+                    //
+                    // The same failure, with the same fix, is documented twenty lines
+                    // above for the `model` stat. It was applied there and not here --
+                    // which is the ordinary way a known bug survives: fixed where it
+                    // was noticed, left everywhere else.
+                    Stat(
+                        "server",
+                        status.error ?: "not reachable",
+                        error = true,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(Modifier.width(8.dp))
                     Text(
                         "tap to retry",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.primary,
+                        // Never wrap. This is an instruction; broken across lines it
+                        // stops reading as one.
+                        maxLines = 1,
                     )
                 }
             }
@@ -322,23 +318,59 @@ private fun StatusStrip(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                ProviderPicker(providers, provider, onSelectProvider, onEditEndpoint)
+                // THE PROVIDER NAME IS THE ONLY VARIABLE-LENGTH ITEM HERE, so it is the
+                // one that must yield. Observed on a device: "Bonsai 8B · 1-bit" is
+                // half again as long as "LFM2.5 8B", which pushed the build label past
+                // the right edge -- it wrapped to two lines AND lost its leading space,
+                // rendering as "think offv0.0.1-dev-debug ·/local". The two shorter
+                // provider names fit, so the strip looked correct on two of three
+                // endpoints, which is exactly how this survives a review.
+                // NESTED ROW, AND NOT A WEIGHTED SPACER. Compose measures a Row's
+                // UNWEIGHTED children first and lets the weighted ones divide what is
+                // left -- so two children each carrying weight(1f) split the remainder
+                // equally regardless of what either actually needs.
+                //
+                // That was the first attempt, and it traded one bug for another: the
+                // provider link and a weight(1f) spacer took half the free space each,
+                // so "LFM2.5 8B" ellipsised to "LFM2.5 …" while a wide gap sat empty
+                // beside it. Correct on Bonsai, wrong on the other two -- the same
+                // shape of mistake as the bug it replaced.
+                //
+                // Here `buildLabel` is unweighted, so it is measured first and gets its
+                // full intrinsic width. The nested Row takes everything remaining, and
+                // inside it "think off" is unweighted while the provider link carries
+                // weight(1f, fill = false) -- meaning it takes its natural width when
+                // that fits, and ellipsises only when it genuinely cannot.
+                Row(
+                    modifier = Modifier.weight(1f),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ActiveProviderLink(
+                        provider = provider,
+                        onOpenProviders = onOpenProviders,
+                        modifier = Modifier.weight(1f, fill = false),
+                    )
+                    Spacer(Modifier.width(12.dp))
+                    // Sits next to the provider because it is the same kind of
+                    // decision: which machine answers, and how hard it works first.
+                    Text(
+                        text = if (think) "think ON" else "think off",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (think) {
+                            MaterialTheme.colorScheme.primary
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                        maxLines = 1,
+                        modifier = Modifier
+                            .clickable { onToggleThink() }
+                            .padding(vertical = 2.dp),
+                    )
+                }
+                // A fixed minimum gap. The previous weight(1f) spacer collapsed to zero
+                // under pressure, which is what ran "think off" and the version string
+                // together into "think offv0.0.1-dev-debug".
                 Spacer(Modifier.width(12.dp))
-                // Sits next to the provider because it is the same kind of decision:
-                // which machine answers, and how hard it works before it does.
-                Text(
-                    text = if (think) "think ON" else "think off",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = if (think) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                    modifier = Modifier
-                        .clickable { onToggleThink() }
-                        .padding(vertical = 2.dp),
-                )
-                Spacer(Modifier.weight(1f))
                 // Build provenance stays on screen. It belongs to the same thesis as
                 // the rest of this strip -- the build IS part of the machinery -- and
                 // it is what makes a screenshot evidence rather than an impression.
@@ -346,6 +378,9 @@ private fun StatusStrip(
                     buildLabel,
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    // Never wrap. A version string broken across lines stops being
+                    // scannable, which is the only reason it is on screen.
+                    maxLines = 1,
                 )
             }
         }
@@ -353,106 +388,54 @@ private fun StatusStrip(
 }
 
 /**
- * Which endpoint is answering, and how to change it.
+ * Which endpoint is answering, and the way to somewhere that can change it.
  *
- * `provider` and `status.model` are two different facts and both are shown: the
- * provider is the endpoint you chose, the model is what that server reports it
- * actually loaded. They disagree exactly when something is wrong -- you switched to
- * the NPU port and it is still serving the old weights -- and collapsing them into one
+ * `provider` and `status.model` remain two different facts and both are still shown:
+ * the provider is the endpoint you chose, the model is what that server reports it
+ * actually loaded. They disagree exactly when something is wrong -- you switched to the
+ * NPU port and it is still serving the old weights -- and collapsing them into one
  * label would hide the only symptom.
+ *
+ * What changed is that this is now a LINK rather than a menu. Choosing, adding, editing
+ * and deleting live on `ModelsProvidersScreen`; a status strip that also mutated
+ * configuration was doing two jobs, and the second one was buried three taps deep
+ * inside the first.
  */
 @Composable
-private fun ProviderPicker(
-    providers: List<Provider>,
-    current: Provider?,
-    onSelect: (Long) -> Unit,
-    onEdit: (Provider?) -> Unit,
+private fun ActiveProviderLink(
+    provider: Provider?,
+    onOpenProviders: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    // The menu used to be suppressed at one entry, on the reasoning that a menu opening
-    // to a single item is a control that does nothing. That stopped being true when Add
-    // and Edit moved into it: it is no longer only a chooser, and it is now the ONLY
-    // route to an endpoint this build did not seed -- which, on any device but the
-    // author's, is every endpoint that would actually answer.
-
-    Box {
-        Row(
-            modifier = Modifier
-                .clickable { expanded = true }
-                .padding(vertical = 2.dp),
-            horizontalArrangement = Arrangement.spacedBy(4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                current?.name ?: "no provider",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                "▾",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            providers.forEach { p ->
-                DropdownMenuItem(
-                    onClick = {
-                        expanded = false
-                        onSelect(p.id)
-                    },
-                    text = {
-                        Column {
-                            Text(p.name, style = MaterialTheme.typography.bodyMedium)
-                            // The URL is shown, not hidden behind the name. When two
-                            // providers are misconfigured to the same port this is the
-                            // only place that difference is visible.
-                            Text(
-                                p.baseUrl.removePrefix("http://"),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                    },
-                    trailingIcon = if (p.id == current?.id) {
-                        {
-                            Text(
-                                "✓",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                        }
-                    } else {
-                        null
-                    },
-                )
+    Row(
+        modifier = modifier
+            // 48dp is the accessibility floor from the design contract, applied as a
+            // MINIMUM so the row is still free to grow when the font scale does.
+            .defaultMinSize(minHeight = 48.dp)
+            .clickable(onClick = onOpenProviders)
+            .semantics {
+                contentDescription =
+                    "Provider ${provider?.name ?: "none selected"}. Opens models and providers."
             }
-
-            HorizontalDivider()
-
-            // Edit acts on the CURRENT endpoint, not on a long-pressed row. A long-press
-            // affordance inside a dropdown is undiscoverable, and the endpoint someone
-            // wants to correct is essentially always the one that just failed.
-            if (current != null) {
-                DropdownMenuItem(
-                    onClick = {
-                        expanded = false
-                        onEdit(current)
-                    },
-                    text = { Text("Edit ${current.name}", style = MaterialTheme.typography.bodyMedium) },
-                )
-            }
-            DropdownMenuItem(
-                onClick = {
-                    expanded = false
-                    onEdit(null)
-                },
-                text = { Text("Add endpoint…", style = MaterialTheme.typography.bodyMedium) },
-            )
-        }
+            .padding(vertical = 2.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            provider?.name ?: "no provider",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+        // A chevron pointing right, not down: this opens a screen now, it does not
+        // drop a menu. The glyph is the only thing telling the user which, so it is
+        // worth getting right.
+        Text(
+            "\u203a",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+        )
     }
 }
 
@@ -491,7 +474,7 @@ private fun Stat(
 
 /** Row(rail, Column) -- the prototype's transcript shape, not chat bubbles. */
 @Composable
-private fun MessageRow(message: Message) {
+private fun MessageRow(message: Message, onOpenEvidence: (Long) -> Unit) {
     // Reasoning collapses; everything else does not.
     //
     // The thesis of this UI is that the machinery is the product, and that still
@@ -559,7 +542,17 @@ private fun MessageRow(message: Message) {
                 // Grounding is rendered only where it was actually reported. A direct
                 // server has no retrieval and therefore no opinion, so it shows
                 // nothing -- rather than an absence that would read as "not grounded".
-                message.grounded?.let { Grounding(it, CitationCodec.decode(message.citations)) }
+                message.grounded?.let {
+                    Grounding(
+                        grounded = it,
+                        citations = CitationCodec.decode(message.citations),
+                        // The evidence affordance is offered ONLY where a verdict was
+                        // actually reported, which is the same condition as rendering
+                        // grounding at all. An "open evidence" link on a direct answer
+                        // would promise a drawer that can only say "no retrieval ran".
+                        onOpenEvidence = { onOpenEvidence(message.id) },
+                    )
+                }
             }
         }
     }
@@ -575,12 +568,23 @@ private fun MessageRow(message: Message) {
  * branch written first rather than the fallback.
  */
 @Composable
-private fun Grounding(grounded: Boolean, citations: List<Citation>) {
+private fun Grounding(
+    grounded: Boolean,
+    citations: List<Citation>,
+    onOpenEvidence: () -> Unit,
+) {
     if (!grounded) {
+        // Still tappable. "Why does it say that?" is the first question an ungrounded
+        // answer provokes, and the drawer is where it is answered -- so the state that
+        // most needs explaining is not the one state without a way in.
         Text(
             "not grounded \u2014 no supporting passage was found",
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.error,
+            modifier = Modifier
+                .defaultMinSize(minHeight = 48.dp)
+                .clickable(onClick = onOpenEvidence)
+                .semantics { contentDescription = "Not grounded. Opens evidence." },
         )
         return
     }
@@ -623,6 +627,19 @@ private fun Grounding(grounded: Boolean, citations: List<Citation>) {
                 color = MaterialTheme.colorScheme.error,
             )
         }
+
+        // One entry point for the whole evidence set, rather than a link per citation.
+        // The question is about the ANSWER -- what stands behind it -- and a link on
+        // each row would answer a narrower question nobody asked.
+        Text(
+            "open evidence ›",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.primary,
+            modifier = Modifier
+                .defaultMinSize(minHeight = 48.dp)
+                .clickable(onClick = onOpenEvidence)
+                .semantics { contentDescription = "Open evidence for this answer" },
+        )
     }
 }
 
@@ -702,15 +719,12 @@ private fun ChatScreenPreview() {
             onSend = {},
             onRetryStatus = {},
             buildLabel = "v0.0.2 · abc1234",
-            providers = previewProviders,
             provider = previewProviders.first(),
-            onSelectProvider = {},
-            onSaveEndpoint = { _, _, _, _ -> },
-            onDeleteEndpoint = {},
-            isDefaultProvider = { true },
             elapsed = null,
             think = false,
             onToggleThink = {},
+            onOpenProviders = {},
+            onOpenEvidence = {},
         )
     }
 }
@@ -726,15 +740,12 @@ private fun ChatScreenOfflinePreview() {
             onSend = {},
             onRetryStatus = {},
             buildLabel = "v0.0.2 · abc1234",
-            providers = previewProviders,
             provider = previewProviders.first(),
-            onSelectProvider = {},
-            onSaveEndpoint = { _, _, _, _ -> },
-            onDeleteEndpoint = {},
-            isDefaultProvider = { true },
             elapsed = null,
             think = false,
             onToggleThink = {},
+            onOpenProviders = {},
+            onOpenEvidence = {},
         )
     }
 }
