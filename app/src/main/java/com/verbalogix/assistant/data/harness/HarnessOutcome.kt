@@ -24,6 +24,34 @@ object SchemaIds {
      */
     const val EXPERT_RELEASE_DETAIL = "knowledge-foundry-expert-release-detail/3.0"
 
+    /**
+     * Retrieval, carried as a 2.0 body inside a 3.0 envelope.
+     *
+     * Not a typo and not a downgrade: `operation-response/3.0` names `query-result-2.0`
+     * in its own `oneOf`. Retrieval was specified before the expert surfaces and did not
+     * need re-versioning. Worth a constant of its own because "everything inside /3.0 is
+     * /3.0" is the natural assumption and it is wrong here.
+     */
+    const val QUERY_RESULT = "knowledge-foundry-query-result/2.0"
+
+    /** The Harness's own verdict on the evidence. This client never computes it. */
+    val ANSWERABILITY = setOf("supported", "conflicted", "insufficient", "refused", "failed")
+
+    /** Per-item, and narrower than [ANSWERABILITY]: an item is not "refused". */
+    val KNOWLEDGE_STATUS = setOf("supported", "conflicted", "insufficient")
+
+    val UNCERTAINTY = setOf("none", "declared", "not_observed")
+
+    /**
+     * Consts the Foundry states about every packet and item.
+     *
+     * Checked rather than assumed: a response that omits or weakens either is refused,
+     * because they are the contract's instruction that retrieved text is DATA -- never a
+     * prompt, never an instruction, and never authority to act.
+     */
+    const val CONTENT_TREATMENT = "inert-untrusted-data"
+    const val AUTHORITY_BOUNDARY = "context-does-not-grant-effect-authority"
+
     /** `capabilities/3.0` pins this exactly; a different runtime is a different contract. */
     const val RUNTIME_CONTRACT = "0.3.2"
 

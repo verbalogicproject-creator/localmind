@@ -38,6 +38,10 @@ class SchemaNegotiationTest {
                 "knowledge-foundry-capabilities/3.0",
                 "knowledge-foundry-expert-catalog/3.0",
                 "knowledge-foundry-expert-release-detail/3.0",
+                // A 2.0 id among 3.0 ones, because operation-response/3.0's own oneOf
+                // names query-result-2.0. Retrieval was specified before the expert
+                // surfaces and did not need re-versioning.
+                "knowledge-foundry-query-result/2.0",
             ),
             SchemaNegotiation.ACCEPTED,
         )

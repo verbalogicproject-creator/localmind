@@ -47,6 +47,10 @@ object SchemaNegotiation {
         SchemaIds.CAPABILITIES,
         SchemaIds.EXPERT_CATALOG,
         SchemaIds.EXPERT_RELEASE_DETAIL,
+        // A 2.0 id in a set otherwise full of 3.0 ones, because the envelope's oneOf says
+        // so. Admitted with its decoder and its golden in this same change, like every
+        // entry above it.
+        SchemaIds.QUERY_RESULT,
     )
 
     /** The `schema` field's shape, checked before its value is compared. */

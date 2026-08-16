@@ -3,7 +3,9 @@ package com.verbalogix.assistant.data.harness
 import com.verbalogix.assistant.data.harness.wire.CapabilitiesResult
 import com.verbalogix.assistant.data.harness.wire.ExpertCatalogResult
 import com.verbalogix.assistant.data.harness.wire.ExpertReleaseDetailResult
+import com.verbalogix.assistant.data.harness.wire.EvidencePacket
 import com.verbalogix.assistant.data.harness.wire.ExpertReleaseSummary
+import com.verbalogix.assistant.data.harness.wire.QueryResult
 import com.verbalogix.assistant.data.harness.wire.OperationResponseEnvelope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -128,6 +130,76 @@ object HarnessDecoder {
                 }
             }
         }
+
+    /**
+     * Decode a retrieval response.
+     *
+     * VALIDATES THE CONSTS RATHER THAN TRUSTING THEM. `content_treatment` and
+     * `authority_boundary` are the Foundry telling this client that retrieved text is
+     * inert data with no authority attached. A packet that omits or weakens either is not
+     * a packet this client understands, so it is refused -- checking them is the whole
+     * point of their being in the schema.
+     *
+     * Closed vocabularies are checked too. `answerability` is the Harness's verdict and
+     * the one thing the UI must never compute; a value outside the enum means the
+     * document is not the one this contract describes.
+     */
+    internal fun decodeQueryResult(raw: String): HarnessOutcome<QueryResult> =
+        decodeResult(raw, "query.retrieve", SchemaIds.QUERY_RESULT) { element ->
+            STRICT.decodeFromJsonElement(QueryResult.serializer(), element)
+        }.also { outcome ->
+            if (outcome is HarnessOutcome.Decoded) {
+                validatePacket(outcome.value.evidencePacket)?.let {
+                    return HarnessOutcome.Refused(it)
+                }
+            }
+        }
+
+    private fun validatePacket(packet: EvidencePacket): HarnessRefusal? {
+        if (packet.contentTreatment != SchemaIds.CONTENT_TREATMENT) {
+            return HarnessRefusal.Undecodable(
+                "evidence packet did not declare content_treatment " +
+                    "\"${SchemaIds.CONTENT_TREATMENT}\"",
+            )
+        }
+        if (packet.authorityBoundary != SchemaIds.AUTHORITY_BOUNDARY) {
+            return HarnessRefusal.Undecodable(
+                "evidence packet did not declare the expected authority boundary",
+            )
+        }
+        if (packet.answerability !in SchemaIds.ANSWERABILITY) {
+            return HarnessRefusal.Undecodable("unknown answerability \"${packet.answerability}\"")
+        }
+        if (packet.disposition !in SchemaIds.DISPOSITIONS) {
+            return HarnessRefusal.UnknownDisposition(packet.disposition)
+        }
+        for (id in listOf(packet.packetId, packet.trace.traceId)) {
+            if (!isWellFormedIdentity(id)) return HarnessRefusal.MalformedIdentity(id)
+        }
+        for (item in packet.items) {
+            // PER ITEM TOO. A single item carrying a different treatment would otherwise
+            // travel with the rest of a packet that declared the right one.
+            if (item.contentTreatment != SchemaIds.CONTENT_TREATMENT) {
+                return HarnessRefusal.Undecodable("an evidence item is not declared inert")
+            }
+            if (item.knowledgeStatus !in SchemaIds.KNOWLEDGE_STATUS) {
+                return HarnessRefusal.Undecodable(
+                    "unknown knowledge_status \"${item.knowledgeStatus}\"",
+                )
+            }
+            if (item.uncertainty !in SchemaIds.UNCERTAINTY) {
+                return HarnessRefusal.Undecodable("unknown uncertainty \"${item.uncertainty}\"")
+            }
+            val identities = listOf(
+                item.evidenceId, item.candidateId, item.packId, item.releaseId,
+                item.revisionId, item.logicalId,
+            ) + item.graphPathIds + item.contradictionIds + item.transformationIds
+            for (id in identities) {
+                if (!isWellFormedIdentity(id)) return HarnessRefusal.MalformedIdentity(id)
+            }
+        }
+        return null
+    }
 
     /** The checks every release summary must pass, wherever it arrives from. */
     private fun validateRelease(release: ExpertReleaseSummary): HarnessRefusal? = when {
