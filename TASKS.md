@@ -32,22 +32,40 @@ Branch `feat/amber-seven-surface-shell`. Updated as work lands.
 - [x] **CI on this branch** — `ci.yml` green; `navigation-compose 2.9.8` validated on
       x86_64 at last
 
+## First physical-device session — OBSERVED 2026-08-17
+
+Pairing, catalog and detail worked on the NX779J against a live Harness. Recorded from
+two screenshots of the Expert Detail surface; nothing below is inferred.
+
+- **Expert Detail rendered live data.** `kf:pack:c597b1bf…` matches the mounted Project
+  Expert. The release identity `kf:pack-release:3c2c714a…` **differs from the golden's**,
+  which is how we know this is a real response and not a fixture.
+- **Reaching detail proves the library rendered a non-empty catalog** — the branch that
+  crashed. The nested-scroll fix holds on a real device.
+- **Fields observed:** name, `namespace/slug · version`, description, Active, "Trusted
+  signature, verified by Knowledge Foundry", compatibility `accepted`, profile
+  `project-companion`, risk class `moderate`, publication channel `development`,
+  capabilities, allowed sensitivities `internal`.
+- **Progressive disclosure works.** Identity and Verification expand; pack, release and
+  install identities and four SHA-256 digests render **full length, wrapping across two
+  lines, never truncated** — which is what that surface was built to do.
+- **Not yet observed:** the library list itself, filters, search, rotation across an
+  expiry boundary, or a `Pair again` path.
+
 ## Verification status
 
 | rung | state |
 |---|---|
 | JVM unit | **170 run, 0 failed** |
 | lint · preflight | clean (15 checks) |
-| `ci.yml` | green on `cf3dd4d` |
-| emulator API 28 + 36 | 100 tests green on `a9fbdee`; re-run in flight for `cf3dd4d` |
+| `ci.yml` | green on `a2c56e3` |
+| emulator API 28 + 36 | **108 tests green on `829c021`** |
 | release APK | builds, 23.4 MB unsigned, all `DT_NEEDED` resolve |
-| **physical device** | **never, since the very first run** |
+| **physical device** | **pairing → catalog → detail observed working, 2026-08-17** |
 
 ## Blocked — Knowledge Foundry side
 
-- [!] **First live session** — waiting on the Termux→Localmind pairing-launch bridge.
-      Everything below it is verified against goldens, and no byte has yet crossed
-      loopback to `127.0.0.1:8091` from this app.
+- [x] **First live session** — pairing, catalog and detail observed on the device.
 - [!] **Grounded evidence** — `canonical-assistant-turn` planned-not-implemented.
 - [!] **Tool approval** — `governed-tool-proposal-decision-receipt` planned-not-implemented.
 
