@@ -61,24 +61,79 @@ two screenshots of the Expert Detail surface; nothing below is inferred.
 
 | rung | state |
 |---|---|
-| JVM unit | **170 run, 0 failed** |
+| JVM unit | **225 run, 0 failed** |
 | lint · preflight | clean (15 checks) |
-| `ci.yml` | green on `a2c56e3` |
-| emulator API 28 + 36 | **108 tests green on `829c021`** |
+| `ci.yml` | green on `4daf986` |
+| emulator API 29 + 36 | **118 tests green on `68a59c3`** |
 | release APK | builds, 23.4 MB unsigned, all `DT_NEEDED` resolve |
-| **physical device** | **pairing → catalog → detail observed working, 2026-08-17** |
+| **physical device** | **pairing → catalog → detail → RETRIEVAL observed, 2026-08-17** |
 
 ## Blocked — Knowledge Foundry side
 
 - [x] **First live session** — pairing, catalog and detail observed on the device.
-- [!] **Grounded evidence** — `canonical-assistant-turn` planned-not-implemented.
+- [x] **Live retrieval** — `query.retrieve` observed end to end on the device.
+- [!] **Grounded answers** — `canonical-assistant-turn` planned-not-implemented. THE ONLY
+      BLOCKER on the next shared milestone. Admit the schema only alongside its decoder,
+      the exact golden digest, the request shaper and tests, in one change.
 - [!] **Tool approval** — `governed-tool-proposal-decision-receipt` planned-not-implemented.
+
+## Live retrieval — OBSERVED 2026-08-17, HEAD `68a59c3`
+
+Query "memory" against the mounted Project Expert returned 8 evidence items,
+`answerability: supported`, with a full receipt. Read from device screenshots; digests
+are NOT transcribed here, because a digest copied by eye off a photograph is exactly the
+kind of record that looks authoritative and is wrong.
+
+Two defects that only a live pack could expose, both fixed:
+
+- **Omissions rendered as a wall of hex, above the evidence.** Ten raw `kf:candidate:`
+  identities, one per status line, between the user and what they asked for. Now counted
+  in a sentence, placed after the items, identities behind a disclosure.
+- **One evidence item can be an entire source file.** The per-item ceiling is 8,000 bytes,
+  so eight items is hundreds of screens. Quotations now fold at 12 lines, state the real
+  total, and open on request. FOLDING IS NOT SUMMARISING — nothing condensed, nothing
+  elided from the middle, and the wording stays distinct from the Foundry's own truncation.
+
+## Foundry-confirmed contract facts — 2026-08-17
+
+Answers to the questions raised from the live run. Recorded because several are things
+the schemas alone do not say.
+
+1. **The query body is `{"request": <query-request/2.0>}`.** Canonical, going into the
+   route SOT. The bare form is what the golden's echoed `plan.request` suggests and it
+   returns `unknown-field`.
+2. **`truncation.boundaries` being empty is a Foundry BUG, not a design.** Keep using
+   `omissions` as the live signal, and keep rendering non-empty boundaries — verified
+   still present at `RetrievalEvidenceView.kt` (the "Limited by …" line).
+3. **Empty `selected_text` is valid** for graph-reached identity/provenance-only evidence.
+   The explicit no-quote presentation is confirmed correct.
+4. **The runtime ignores client `limits` and enforces fixed maxima**: 8 items, 8,000 bytes
+   per item, 24,000 total. Keep sending `limits: {}`. NO kind-aware budgets until a
+   corrected contract and golden arrive — the schema currently advertises a client-selected
+   limit the runtime does not honour.
+5. **Oversized evidence is omitted WHOLE, never partially truncated.** Never reconstruct
+   it and never ask a model to complete it.
+6. **Semantic and reranker channels are intentionally unavailable** on this stable
+   deployment. Do not advertise them; do not add fallback behaviour.
+7. **Do not generate or label grounded answers.** Evidence remains evidence.
+
+## Holding
+
+Waiting on `canonical-assistant-turn` (schema + server-emitted golden). Until it lands:
+no tag, no release, no new surfaces. Explicitly out of scope by direction — AesCoder,
+Builder Canvas, sandbox, file creation, new providers, model configuration, and further
+navigation work; those return only with a closed Android-facing contract.
+
+Preserved as-is: strict decoders, session lifecycle, physical-device behaviour, and the
+read-only authority boundary.
 
 ## Not started
 
 - [ ] **Evidence summary card above the answer** — designed in
       `stitch-recommendations.md`, blocked on the assistant-turn contract
-- [ ] **Signing / tagging** — only after Experts works end to end on a real Harness
+- [ ] **Signing / tagging** — held. Not before the next shared milestone.
+- [ ] **NEXT SHARED MILESTONE** — one honest grounded LFM answer tied to an immutable
+      evidence packet and receipt. Blocked on `canonical-assistant-turn`.
 
 ---
 
