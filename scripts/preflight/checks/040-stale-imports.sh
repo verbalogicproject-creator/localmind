@@ -45,7 +45,21 @@ while IFS= read -r sym; do
     cls="${sym##*.}"
     case " $GENERATED " in *" $cls "*) continue ;; esac
     # A declaration of that simple name anywhere in the project's sources.
-    if ! grep -rqE "^\s*(public |internal |private |abstract |open |sealed |data )*(class|interface|object|enum class|typealias|fun) +$cls\b" \
+    #
+    # THREE FORMS, because Kotlin has three and the first version of this check knew
+    # only one. It matched `class|interface|object|enum class|typealias|fun <name>`,
+    # which misses two things that are ordinary Kotlin and perfectly importable:
+    #
+    #   top-level properties      const val TAG_EVIDENCE_CLOSE = "..."
+    #   extension functions       fun Modifier.minimumTouchTarget()
+    #
+    # The extension case is the subtler one: the declaration reads `fun Modifier.foo`,
+    # so a pattern anchored as `fun +foo` never matches however correct the code is.
+    #
+    # Both were found by this check firing on a file that compiles -- the same way the
+    # BuildConfig false positive above was found. A check that cries wolf gets ignored,
+    # and an ignored check is worse than no check because it still looks like coverage.
+    if ! grep -rqE "^[[:space:]]*(public |internal |private |abstract |open |sealed |data |const |expect |actual |external |inline |suspend )*((class|interface|object|enum class|typealias|val|var)[[:space:]]+$cls\b|fun[[:space:]]+([A-Za-z0-9_.<>?]+\.)?$cls\b)" \
            "${SRC[@]}" 2>/dev/null; then
         fail "import $sym refers to a symbol with no declaration in this project"
         missing=1
