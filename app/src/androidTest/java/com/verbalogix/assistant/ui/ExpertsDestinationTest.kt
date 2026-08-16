@@ -5,11 +5,13 @@ import androidx.compose.ui.test.FontScale
 import androidx.compose.ui.test.ForcedSize
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.then
 import androidx.compose.ui.unit.DpSize
@@ -21,6 +23,7 @@ import com.verbalogix.assistant.ui.experts.ExpertLifecycle
 import com.verbalogix.assistant.ui.experts.ExpertSummary
 import com.verbalogix.assistant.ui.experts.ExpertsDestination
 import com.verbalogix.assistant.ui.experts.TAG_EXPERT_LIBRARY
+import com.verbalogix.assistant.ui.experts.TAG_EXPERT_LIST
 import com.verbalogix.assistant.ui.experts.TAG_EXPERT_SEARCH
 import com.verbalogix.assistant.ui.pairing.TAG_PAIRING_PANEL
 import com.verbalogix.assistant.ui.theme.LocalmindTheme
@@ -126,9 +129,14 @@ class ExpertsDestinationTest {
     @Test
     fun a_long_catalog_scrolls_to_its_last_row() {
         destination(catalog(12))
-        compose.onNodeWithText("Knowledge Foundry Project Expert 12")
-            .performScrollTo()
-            .assertIsDisplayed()
+        // `performScrollToNode` ON THE LIST, not `performScrollTo` on the row. A lazy
+        // list does not compose what is off screen, so row twelve is not in the semantics
+        // tree until the list is scrolled toward it -- and the first version of this test
+        // failed for exactly that reason. Having just fixed a lazy-versus-not bug, I then
+        // wrote assertions that assumed the list was not lazy.
+        compose.onNodeWithTag(TAG_EXPERT_LIST)
+            .performScrollToNode(hasText("Knowledge Foundry Project Expert 12", substring = true))
+        compose.onNodeWithText("Knowledge Foundry Project Expert 12").assertIsDisplayed()
     }
 
     /** The pairing panel scrolls WITH the list rather than sitting beside it. */
@@ -138,9 +146,13 @@ class ExpertsDestinationTest {
         // Scroll to the end, then back to the header. If the panel were a sibling of the
         // list it would never leave the viewport and this would pass vacuously -- so the
         // last row is asserted displayed first, which can only happen after scrolling.
-        compose.onNodeWithText("Knowledge Foundry Project Expert 12")
-            .performScrollTo().assertIsDisplayed()
-        compose.onNodeWithTag(TAG_PAIRING_PANEL).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag(TAG_EXPERT_LIST)
+            .performScrollToNode(hasText("Knowledge Foundry Project Expert 12", substring = true))
+        compose.onNodeWithText("Knowledge Foundry Project Expert 12").assertIsDisplayed()
+
+        compose.onNodeWithTag(TAG_EXPERT_LIST)
+            .performScrollToNode(hasTestTag(TAG_PAIRING_PANEL))
+        compose.onNodeWithTag(TAG_PAIRING_PANEL).assertIsDisplayed()
     }
 
     /** Search and filter state survives inside the single lazy owner. */
@@ -155,16 +167,22 @@ class ExpertsDestinationTest {
     @Test
     fun the_filters_are_reachable_and_narrow_the_list() {
         destination(catalog(4))
-        compose.onNodeWithText("Inactive").performScrollTo().assertIsDisplayed()
+        // Also a lazy item: with the pairing panel above it, the filter row can start
+        // off screen. Same correction as the rows -- drive the list, not the node.
+        compose.onNodeWithTag(TAG_EXPERT_LIST).performScrollToNode(hasText("Inactive"))
+        compose.onNodeWithText("Inactive").assertIsDisplayed()
     }
 
     /** The narrow-and-large case, where a fixed height would have shown its cost. */
     @Test
     fun a_non_empty_catalog_survives_320dp_at_font_scale_2_0() {
         destination(catalog(4), widthDp = 320, fontScale = 2.0f)
-        compose.onNodeWithText("Knowledge Foundry Project Expert 1")
-            .performScrollTo()
-            .assertIsDisplayed()
+        // At 2.0x the pairing panel alone fills the viewport, so the first row is off
+        // screen and therefore not composed. Scrolling the list to it is the only way to
+        // assert it exists -- which is also the property worth asserting.
+        compose.onNodeWithTag(TAG_EXPERT_LIST)
+            .performScrollToNode(hasText("Knowledge Foundry Project Expert 1", substring = true))
+        compose.onNodeWithText("Knowledge Foundry Project Expert 1").assertIsDisplayed()
     }
 
     /**
@@ -177,11 +195,18 @@ class ExpertsDestinationTest {
     @Test
     fun no_mutating_control_appears_anywhere_in_the_destination() {
         destination(catalog(3))
+        // EXACT LABELS, NOT SUBSTRINGS. The first version searched for "Install" as a
+        // substring and matched the lifecycle line "Installed, inactive" -- a status the
+        // screen is supposed to show, reported as a forbidden control. Substring matching
+        // on a word that is also an adjective cannot tell a button from a description.
+        //
+        // Exact matching is also sufficient: these are the control labels themselves,
+        // taken from the Stitch mockups where every one of them appears.
         for (forbidden in listOf(
-            "Install", "Activate", "Deactivate", "Apply Update", "Remove", "Import",
-            "Rollback", "Uninstall",
+            "Install", "Install Package", "Activate", "Deactivate", "Apply Update",
+            "Remove", "Import .kpack", "Rollback", "Uninstall", "Eject Model",
         )) {
-            compose.onAllNodesWithText(forbidden, substring = true).assertCountEquals(0)
+            compose.onAllNodesWithText(forbidden).assertCountEquals(0)
         }
     }
 

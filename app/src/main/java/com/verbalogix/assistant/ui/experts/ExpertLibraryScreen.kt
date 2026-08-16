@@ -48,6 +48,15 @@ const val TAG_EXPERT_LIBRARY = "expert-library"
 const val TAG_EXPERT_SEARCH = "expert-search"
 
 /**
+ * The scrolling list itself, distinct from [TAG_EXPERT_LIBRARY] on the Surface.
+ *
+ * A test cannot drive a lazy list through a tag on its container: `performScrollToNode`
+ * needs the node that actually scrolls. Tagging only the Surface is what made the first
+ * version of the regression test unable to reach row twelve.
+ */
+const val TAG_EXPERT_LIST = "expert-list"
+
+/**
  * The expert library.
  *
  * READ-ONLY BY CONSTRUCTION. There is no Install, Update, Activate, Deactivate, Remove or
@@ -108,7 +117,8 @@ fun ExpertLibraryScreen(
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(AmberTokens.mobileMargin),
+                .padding(AmberTokens.mobileMargin)
+                .testTag(TAG_EXPERT_LIST),
             verticalArrangement = Arrangement.spacedBy(AmberTokens.mobileMargin),
         ) {
             item(key = "header") { header() }
