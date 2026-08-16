@@ -1,6 +1,7 @@
 package com.verbalogix.assistant.ui.experts
 
 import com.verbalogix.assistant.data.capability.CapabilityState
+import com.verbalogix.assistant.ui.evidence.RetrievalTarget
 
 /**
  * Where a pack stands in its life.
@@ -77,6 +78,27 @@ data class ExpertDetail(
     val rollbackReleaseId: String?,
     val supersededContentSha256: String?,
 )
+
+/**
+ * What a retrieval against this release is allowed to be.
+ *
+ * `allowed_sensitivities` IS COPIED, NOT CHOSEN. The Foundry stated what this release may
+ * surface; the request repeats it back unchanged. Widening it would be asking for material
+ * this client was never told it may see, and narrowing it would silently hide evidence the
+ * user is entitled to without saying so.
+ *
+ * `active` is `mount_state == active`, expressed here as MOUNTED. It is the one lifecycle
+ * value under which a question can be asked, because retrieval runs against what is
+ * mounted — asking about an installed-but-inactive release would be answered from
+ * something else.
+ */
+fun ExpertDetail.retrievalTarget(): RetrievalTarget =
+    RetrievalTarget(
+        packId = summary.packId,
+        releaseId = summary.releaseId,
+        allowedSensitivities = allowedSensitivities,
+        active = summary.lifecycle == ExpertLifecycle.MOUNTED,
+    )
 
 /**
  * The library's filters.

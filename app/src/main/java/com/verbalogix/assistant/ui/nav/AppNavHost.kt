@@ -302,10 +302,20 @@ fun AppNavHost(
             ) {
                 val vm: ExpertDetailViewModel = hiltViewModel()
                 val state by vm.state.collectAsStateWithLifecycle()
+                val retrieval by vm.retrievalState.collectAsStateWithLifecycle()
+                val queryText by vm.queryText.collectAsStateWithLifecycle()
 
                 ExpertDetailScreen(
                     state = state,
                     onBack = { navController.popBackStack() },
+                    retrieval = retrieval,
+                    // The question is held by the view model, never by `rememberSaveable`:
+                    // saved instance state is a Bundle the system may persist and that
+                    // turns up in bug reports, and a question typed against a private
+                    // knowledge base does not belong in one.
+                    queryText = queryText,
+                    onQueryChange = vm::onQueryChange,
+                    onSubmitQuery = vm::submitQuery,
                 )
             }
 

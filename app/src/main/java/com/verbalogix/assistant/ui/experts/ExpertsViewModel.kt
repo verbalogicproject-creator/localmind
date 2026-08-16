@@ -8,6 +8,9 @@ import com.verbalogix.assistant.data.capability.CapabilitySource
 import com.verbalogix.assistant.data.capability.CapabilityState
 import com.verbalogix.assistant.data.harness.HarnessClient
 import com.verbalogix.assistant.data.harness.HarnessSessionRepository
+import com.verbalogix.assistant.ui.evidence.RetrievalController
+import com.verbalogix.assistant.ui.evidence.RetrievalTarget
+import com.verbalogix.assistant.ui.evidence.RetrievalUiState
 import com.verbalogix.assistant.ui.nav.ARG_RELEASE_ID
 import com.verbalogix.assistant.ui.nav.RouteArgs
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -15,6 +18,7 @@ import javax.inject.Inject
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -153,6 +157,73 @@ class ExpertDetailViewModel @Inject constructor(
             SharingStarted.WhileSubscribed(5_000),
             ExpertDetailUiState.Loading,
         )
+
+    // ── searching this expert ───────────────────────────────────────────────
+
+    /**
+     * The retrieval itself, behind a seam so its ordering rules are testable.
+     *
+     * The lambda is the whole production implementation: take the live bearer, send the
+     * question, return the outcome. A null bearer -- no session -- returns null and becomes
+     * [com.verbalogix.assistant.ui.evidence.RetrievalUiState.SessionExpired], because the
+     * remedy is pairing rather than retrying.
+     */
+    private val retrieval = RetrievalController(
+        scope = viewModelScope,
+        source = { text, target ->
+            session.bearer()?.let { bearer ->
+                client.retrieveEvidence(bearer, text, target.packId, target.allowedSensitivities)
+            }
+        },
+    )
+
+    /**
+     * The typed question. IN MEMORY, AND NOWHERE ELSE.
+     *
+     * NOT in the `SavedStateHandle` this class already holds, and the screen must not use
+     * `rememberSaveable` for it either. Both write to saved instance state, which is a
+     * Bundle the system may persist to disk and which turns up in bug reports -- so a
+     * question typed against a private knowledge base would outlive the session that could
+     * read it. A `ViewModel` field survives configuration changes, which is the part users
+     * notice, and dies with the process, which is the part that matters.
+     *
+     * It is also never logged, never written to Room beside a message, and never appended
+     * to any history: retrieval here produces evidence, not a conversation.
+     */
+    private val _queryText = MutableStateFlow("")
+    val queryText: StateFlow<String> = _queryText.asStateFlow()
+
+    /** Typing only records text. Nothing is sent until [submitQuery]. */
+    fun onQueryChange(value: String) {
+        _queryText.value = value
+    }
+
+    /**
+     * Send the current question about the release on screen.
+     *
+     * The target is supplied by the caller rather than read from [state], so the question
+     * is correlated against the release the USER was looking at when they submitted --
+     * not against whatever the flow happens to hold when the reply lands.
+     */
+    fun submitQuery(target: RetrievalTarget) = retrieval.submit(_queryText.value, target)
+
+    /**
+     * What the retrieval surface shows, gated on `query.retrieve` being declared.
+     *
+     * The gate is applied here rather than inside the controller so that an unavailable
+     * capability keeps saying so while a stale result would otherwise linger: the
+     * capability is a property of the live session and can be withdrawn under a screen
+     * that is already showing evidence.
+     */
+    val retrievalState: StateFlow<RetrievalUiState> =
+        combine(capabilities.capabilities(), retrieval.state) { caps, current ->
+            when (val gate = caps.evidenceQuery) {
+                is CapabilityState.Unavailable ->
+                    RetrievalUiState.Unavailable(gate.reason, gate.requiredCapability)
+
+                CapabilityState.Available -> current
+            }
+        }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RetrievalUiState.Idle)
 
     /** The malformed-argument case, distinguished from "valid but unknown". */
     val argumentsValid: Boolean = releaseId != null

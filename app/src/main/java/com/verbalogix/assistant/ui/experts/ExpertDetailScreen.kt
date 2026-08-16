@@ -8,8 +8,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -25,11 +29,15 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import com.verbalogix.assistant.data.capability.Capabilities
 import com.verbalogix.assistant.data.capability.CapabilityState
 import com.verbalogix.assistant.ui.components.AmberPanel
+import com.verbalogix.assistant.ui.evidence.RetrievalEvidenceView
+import com.verbalogix.assistant.ui.evidence.RetrievalTarget
+import com.verbalogix.assistant.ui.evidence.RetrievalUiState
 import com.verbalogix.assistant.ui.components.EmptyNotice
 import com.verbalogix.assistant.ui.components.MARK_INFO
 import com.verbalogix.assistant.ui.components.MARK_OK
@@ -41,6 +49,8 @@ import com.verbalogix.assistant.ui.theme.LocalmindTheme
 
 const val TAG_EXPERT_DETAIL = "expert-detail"
 const val TAG_TECHNICAL_DISCLOSURE = "expert-technical-disclosure"
+const val TAG_EXPERT_QUERY_FIELD = "expert-query-field"
+const val TAG_EXPERT_QUERY_SUBMIT = "expert-query-submit"
 
 /**
  * One release, in full.
@@ -73,6 +83,10 @@ const val TAG_TECHNICAL_DISCLOSURE = "expert-technical-disclosure"
 fun ExpertDetailScreen(
     state: ExpertDetailUiState,
     onBack: () -> Unit = {},
+    retrieval: RetrievalUiState = RetrievalUiState.Idle,
+    queryText: String = "",
+    onQueryChange: (String) -> Unit = {},
+    onSubmitQuery: (RetrievalTarget) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -117,14 +131,26 @@ fun ExpertDetailScreen(
                     body = state.detail,
                 )
 
-                is ExpertDetailUiState.Ready -> ReadyDetail(state.expert)
+                is ExpertDetailUiState.Ready -> ReadyDetail(
+                    expert = state.expert,
+                    retrieval = retrieval,
+                    queryText = queryText,
+                    onQueryChange = onQueryChange,
+                    onSubmitQuery = onSubmitQuery,
+                )
             }
         }
     }
 }
 
 @Composable
-private fun ReadyDetail(expert: ExpertDetail) {
+private fun ReadyDetail(
+    expert: ExpertDetail,
+    retrieval: RetrievalUiState,
+    queryText: String,
+    onQueryChange: (String) -> Unit,
+    onSubmitQuery: (RetrievalTarget) -> Unit,
+) {
     val summary = expert.summary
 
     Text(
@@ -166,6 +192,14 @@ private fun ReadyDetail(expert: ExpertDetail) {
             Field("Publication channel", expert.publicationChannel)
         }
     }
+
+    SearchThisExpert(
+        target = expert.retrievalTarget(),
+        retrieval = retrieval,
+        queryText = queryText,
+        onQueryChange = onQueryChange,
+        onSubmitQuery = onSubmitQuery,
+    )
 
     if (expert.capabilities.isNotEmpty()) {
         Section("Capabilities") {
@@ -237,6 +271,91 @@ private fun ReadyDetail(expert: ExpertDetail) {
             CopyableField("Install record SHA-256", expert.installRecordSha256)
             CopyableField("Verification SHA-256", expert.verificationSha256)
         }
+    }
+}
+
+/**
+ * Ask this expert what it knows — and get back what it knows, not a reply.
+ *
+ * "SEARCH", NOT "ASK", AND "RETRIEVE EVIDENCE", NOT "ANSWER". The words are the honest
+ * description of what happens: the Foundry returns quoted source material with provenance,
+ * and Localmind writes nothing. A field labelled "Ask" sets the expectation of a reply,
+ * and the surface below it would then read as a badly-formatted one rather than as
+ * evidence. `canonical-assistant-turn` is planned-not-implemented; until it exists nothing
+ * could attest that a generated answer used this material, so nothing generates one.
+ *
+ * SUBMISSION IS EXPLICIT. The text field only records text. A search-as-you-type retrieval
+ * would send a real request against a real knowledge base for every prefix of the question
+ * — a dozen partial questions on the way to the one the user meant — and would then race
+ * its own results back onto the screen.
+ *
+ * OFFERED ONLY FOR THE ACTIVE RELEASE. Retrieval runs against what is MOUNTED, so a
+ * question posed from an inactive release's screen would be answered from whatever is
+ * mounted instead and attributed here. The field is absent rather than disabled-with-a-
+ * tooltip, and [com.verbalogix.assistant.ui.evidence.RetrievalController] refuses the same
+ * case again on its own.
+ */
+@Composable
+private fun SearchThisExpert(
+    target: RetrievalTarget,
+    retrieval: RetrievalUiState,
+    queryText: String,
+    onQueryChange: (String) -> Unit,
+    onSubmitQuery: (RetrievalTarget) -> Unit,
+) {
+    Section("Search this expert") {
+        if (!target.active) {
+            Text(
+                "This release is installed but not active, so it cannot be searched. " +
+                    "Activation is a Knowledge Foundry decision and happens in Knowledge " +
+                    "Studio.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            return@Section
+        }
+
+        Text(
+            "Returns quoted evidence from this expert's own sources. Localmind does not " +
+                "write an answer from it.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        OutlinedTextField(
+            value = queryText,
+            onValueChange = onQueryChange,
+            label = { Text("Search this expert") },
+            singleLine = true,
+            // Search, not Send or Go. The keyboard's own action is a submission the user
+            // performed deliberately, so it counts as explicit -- unlike a text change.
+            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+            keyboardActions = KeyboardActions(onSearch = { onSubmitQuery(target) }),
+            modifier = Modifier
+                .fillMaxWidth()
+                .testTag(TAG_EXPERT_QUERY_FIELD),
+        )
+        Button(
+            onClick = { onSubmitQuery(target) },
+            // Disabled while one is in flight, so a second tap cannot queue a request whose
+            // answer would be discarded on arrival anyway.
+            enabled = queryText.isNotBlank() && retrieval !is RetrievalUiState.Querying,
+            modifier = Modifier
+                .fillMaxWidth()
+                .minimumTouchTarget()
+                .testTag(TAG_EXPERT_QUERY_SUBMIT),
+        ) { Text("Retrieve evidence") }
+
+        // Sensitivity is stated where the question is asked, not only in a section below:
+        // it is the scope of what can come back, and it is the Foundry's decision, echoed.
+        Text(
+            "Scope: this release only · sensitivities " +
+                target.allowedSensitivities.joinToString(", "),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+
+        RetrievalEvidenceView(state = retrieval)
     }
 }
 

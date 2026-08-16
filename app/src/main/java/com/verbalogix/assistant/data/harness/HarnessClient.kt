@@ -3,6 +3,7 @@ package com.verbalogix.assistant.data.harness
 import com.verbalogix.assistant.data.harness.wire.CapabilitiesResult
 import com.verbalogix.assistant.data.harness.wire.ExpertCatalogResult
 import com.verbalogix.assistant.data.harness.wire.ExpertReleaseDetailResult
+import com.verbalogix.assistant.data.harness.wire.QueryResult
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.HttpTimeout
@@ -130,6 +131,38 @@ class HarnessClient @Inject constructor() {
             setBody(body)
         }
         decodeOperation(response) { HarnessDecoder.decodeExpertReleaseDetail(it) }
+    }.getOrElse { transportRefusal(it) }
+
+    /**
+     * Ask one expert a question and receive EVIDENCE.
+     *
+     * `answer_mode: evidence-only` is fixed inside [HarnessRequest.retrieveBody] and
+     * cannot be varied from here, so there is no call shape in this client that asks the
+     * Foundry to generate prose. What comes back is quotation, provenance and the
+     * Harness's own `answerability` verdict.
+     *
+     * The pack scope is ONE PACK: the release being inspected. Localmind never sends
+     * `mode: all` from an expert's own screen, because a question asked there is a
+     * question about that expert.
+     *
+     * @param allowedSensitivities exactly the list `expert.release.inspect` returned. This
+     *   client neither widens nor defaults it.
+     */
+    internal suspend fun retrieveEvidence(
+        accessToken: String,
+        text: String,
+        packId: String,
+        allowedSensitivities: List<String>,
+        bind: String = DEFAULT_BIND,
+    ): HarnessOutcome<QueryResult> = runCatching {
+        val body = HarnessRequest.retrieveBody(text, packId, allowedSensitivities)
+        val response = http.post("http://$bind${HarnessRequest.PATH_QUERY_RETRIEVE}") {
+            HarnessRequest.operationHeaders(bind, accessToken, post = true)
+                .forEach { (k, v) -> header(k, v) }
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }
+        decodeOperation(response) { HarnessDecoder.decodeQueryResult(it) }
     }.getOrElse { transportRefusal(it) }
 
     private suspend fun <T> operationGet(

@@ -145,7 +145,19 @@ object HarnessDecoder {
      * document is not the one this contract describes.
      */
     internal fun decodeQueryResult(raw: String): HarnessOutcome<QueryResult> =
-        decodeResult(raw, "query.retrieve", SchemaIds.QUERY_RESULT) { element ->
+        decodeResult(
+            raw,
+            "query.retrieve",
+            SchemaIds.QUERY_RESULT,
+            // AN ABSTENTION STILL CARRIES ITS PACKET, and the packet is where the reason
+            // lives. The facade derives the envelope's disposition FROM
+            // `evidence_packet.disposition` and seals the result either way, while
+            // `error` stays null -- so treating a decline as an empty outcome here would
+            // report "the expert abstained" with no account of why, discarding a
+            // `reason_code` the server did send. Retrieval is the only operation with
+            // this shape; the others fail with a result of null.
+            resultSurvivesDecline = true,
+        ) { element ->
             STRICT.decodeFromJsonElement(QueryResult.serializer(), element)
         }.also { outcome ->
             if (outcome is HarnessOutcome.Decoded) {
@@ -219,6 +231,7 @@ object HarnessDecoder {
         raw: String,
         expectedOperation: String,
         expectedResultSchema: String,
+        resultSurvivesDecline: Boolean = false,
         decode: (kotlinx.serialization.json.JsonElement) -> T,
     ): HarnessOutcome<T> {
         val envelope = try {
@@ -247,7 +260,13 @@ object HarnessDecoder {
         if (envelope.disposition != SchemaIds.DISPOSITION_SUCCEEDED) {
             // failed / abstained / refused are legitimate outcomes, not decode errors.
             // Surfaced as themselves so the UI can say what the Harness said.
-            return HarnessOutcome.Unsuccessful(envelope.disposition, envelope.error?.code)
+            //
+            // Unless the operation seals a result alongside the decline, in which case the
+            // decode continues and the CALLER reads the disposition off the payload -- the
+            // payload's own account is more specific than the envelope's one word.
+            if (!resultSurvivesDecline || envelope.result == null) {
+                return HarnessOutcome.Unsuccessful(envelope.disposition, envelope.error?.code)
+            }
         }
 
         val result = envelope.result

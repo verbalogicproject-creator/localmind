@@ -62,7 +62,37 @@ fun RetrievalEvidenceView(
             RetrievalUiState.Idle -> Unit
 
             RetrievalUiState.Querying ->
-                StatusLine(mark = MARK_INFO, label = "Asking the expert…")
+                StatusLine(mark = MARK_INFO, label = "Retrieving evidence…")
+
+            // Reached only if something submitted anyway; the screen does not offer the
+            // field for an inactive release.
+            RetrievalUiState.InactiveRelease -> EmptyNotice(
+                title = "Not active",
+                body = "Only the active release can be searched, because retrieval runs " +
+                    "against what is mounted.",
+            )
+
+            is RetrievalUiState.SessionExpired -> EmptyNotice(
+                title = "Session ended",
+                // The one state on this surface with a remedy the user can perform, so it
+                // names the remedy. The cause is included when the Harness gave one and
+                // omitted rather than guessed when it did not.
+                body = "Pair with Knowledge Foundry again to search this expert." +
+                    (state.cause?.let { " (${it.name.lowercase().replace('_', ' ')})" } ?: ""),
+            )
+
+            is RetrievalUiState.Incompatible -> EmptyNotice(
+                title = "Version mismatch",
+                body = state.detail,
+            )
+
+            is RetrievalUiState.Uncorrelated -> EmptyNotice(
+                title = "Reply did not match this expert",
+                // NEVER SHOWN AS EVIDENCE. A well-formed document about a different pack
+                // is the failure that does not look like one, so it is named rather than
+                // rendered.
+                body = state.detail + " Nothing from it was shown.",
+            )
 
             is RetrievalUiState.Unavailable -> AmberPanel(modifier = Modifier.fillMaxWidth()) {
                 Column(
@@ -85,7 +115,7 @@ fun RetrievalEvidenceView(
 
             // The Harness declining is the Harness working. Its own words, its own code.
             is RetrievalUiState.Declined -> EmptyNotice(
-                title = "The expert did not answer",
+                title = "No evidence returned",
                 body = "Knowledge Foundry reported \"${state.disposition}\"" +
                     (state.reasonCode?.let { ": $it" } ?: "") + ".",
             )

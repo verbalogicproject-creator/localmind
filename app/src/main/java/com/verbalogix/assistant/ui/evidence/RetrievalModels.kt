@@ -1,5 +1,30 @@
 package com.verbalogix.assistant.ui.evidence
 
+import com.verbalogix.assistant.data.harness.PairAgainCause
+
+/**
+ * What a retrieval is allowed to be about.
+ *
+ * ASSEMBLED FROM ONE INSPECTED RELEASE, and carried through the request and back out
+ * again as the thing every part of the reply is checked against. It is not a convenience
+ * bundle: it is the correlation key.
+ *
+ * [allowedSensitivities] is copied from `expert-release-detail/3.0` verbatim. This client
+ * has no basis to widen it and no reason to narrow it -- the Foundry stated what this
+ * release may surface, and repeating that back is the whole of Localmind's part.
+ *
+ * [active] gates whether a question may be asked at all. An inactive release is installed
+ * and not mounted, so retrieval against it would either fail at the Foundry or -- worse --
+ * quietly answer from whatever IS mounted, attributing another release's material to the
+ * one on screen.
+ */
+data class RetrievalTarget(
+    val packId: String,
+    val releaseId: String,
+    val allowedSensitivities: List<String>,
+    val active: Boolean,
+)
+
 /**
  * What a retrieval returned, as the screen shows it.
  *
@@ -112,9 +137,21 @@ data class RetrievalReceipt(
 /**
  * What the retrieval surface can be showing.
  *
- * [Refused] and [Unavailable] stay apart for the reason they do everywhere else in this
- * app: one is the client declining to read a reply, the other is the Harness never having
- * offered the operation, and only one of them is worth waiting on.
+ * NINE STATES, AND THE SEPARATIONS ARE THE CONTENT. Every one of these could be collapsed
+ * into "something went wrong", and each collapse would cost the user the one fact that
+ * tells them what to do next:
+ *
+ *  - [Unavailable] — the Harness never offered retrieval. Waiting will not help.
+ *  - [InactiveRelease] — this build is refusing to ask. Activating happens in Studio.
+ *  - [SessionExpired] — pair again, and it works.
+ *  - [Declined] — the Foundry answered and chose not to; its reason code is the account.
+ *  - [Incompatible] — only a new release of software fixes it. Pairing loops forever here.
+ *  - [Uncorrelated] — a reply arrived about something else. Never displayed as evidence.
+ *  - [Refused] — everything else this client would not read.
+ *
+ * [Declined] versus [Refused] is the same split [com.verbalogix.assistant.data.harness.HarnessOutcome]
+ * draws: the Harness declining is the Harness working correctly, and reporting it as a
+ * client failure would blame the wrong component.
  */
 sealed interface RetrievalUiState {
 
@@ -123,11 +160,48 @@ sealed interface RetrievalUiState {
 
     data object Querying : RetrievalUiState
 
-    /** `query.retrieve` is not declared, or there is no session. */
+    /** `query.retrieve` is not declared. */
     data class Unavailable(val reason: String, val requiredCapability: String) : RetrievalUiState
+
+    /**
+     * The inspected release is installed but not mounted.
+     *
+     * The screen does not offer the field in this case, so reaching this state means
+     * something asked anyway. Kept as a real state rather than an assertion because the
+     * cost of the alternative is a question answered from a DIFFERENT release than the one
+     * on screen, which would be indistinguishable from working.
+     */
+    data object InactiveRelease : RetrievalUiState
+
+    /**
+     * There is no live session, or the Harness said the token is finished.
+     *
+     * Separate from [Refused] because this one has a remedy the user can perform.
+     * [cause] is null when the session was simply absent rather than rejected.
+     */
+    data class SessionExpired(val cause: PairAgainCause?) : RetrievalUiState
 
     /** The Harness answered and declined — `abstained`, `refused` or `failed`. */
     data class Declined(val disposition: String, val reasonCode: String?) : RetrievalUiState
+
+    /**
+     * A payload version or runtime contract this build does not share.
+     *
+     * Split out from [Refused] for the same reason `ExpertLibraryUiState` splits it: both
+     * mean "the reply was not read", only one is fixed by updating software, and a user
+     * told "something went wrong" cannot tell which.
+     */
+    data class Incompatible(val detail: String) : RetrievalUiState
+
+    /**
+     * The reply did not describe the pack and release that were asked about.
+     *
+     * A mismatch is never rendered as evidence, however well-formed it is. A stale
+     * response, a misrouted one, or a scope the Foundry widened would all produce a
+     * perfectly valid document about the WRONG expert -- and the failure mode of showing
+     * it is that nothing looks wrong.
+     */
+    data class Uncorrelated(val detail: String) : RetrievalUiState
 
     /** This client would not read the reply. */
     data class Refused(val detail: String) : RetrievalUiState

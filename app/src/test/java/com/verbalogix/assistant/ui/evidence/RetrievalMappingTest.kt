@@ -20,14 +20,31 @@ import org.junit.Test
  */
 class RetrievalMappingTest {
 
+    /**
+     * The pack and release the golden was actually retrieved from.
+     *
+     * Passed to every mapping so the correlation check runs on this path too: a mapper
+     * exercised only against a target it cannot fail to match would not be exercising the
+     * check at all. The mismatches live in `RetrievalCorrelationTest`.
+     */
+    private val target = RetrievalTarget(
+        packId = "kf:pack:c597b1bfbc5ff099921cfc338451b34c5d8e10e82c2ee6a290d4c53a2e7e5efe",
+        releaseId =
+            "kf:pack-release:7b8d2db313b98cb708b65b34e0143faf19b126daa9eda77e6407ca3ed452dac5",
+        allowedSensitivities = listOf("internal"),
+        active = true,
+    )
+
     private fun golden(name: String = "client-query-response.json"): String =
         checkNotNull(javaClass.classLoader?.getResourceAsStream("goldens/stage3c-v1/$name")) {
             "missing golden: $name"
         }.readBytes().decodeToString()
 
     private fun evidence(): RetrievalEvidence =
-        (HarnessDecoder.decodeQueryResult(golden()).toRetrievalState() as RetrievalUiState.Ready)
-            .evidence
+        (
+            HarnessDecoder.decodeQueryResult(golden()).toRetrievalState(target)
+                as RetrievalUiState.Ready
+            ).evidence
 
     @Test
     fun a_real_retrieval_becomes_a_ready_state() {
@@ -79,8 +96,10 @@ class RetrievalMappingTest {
         // understate a disagreement between packs.
         val id = "kf:contradiction:${"ab".repeat(32)}"
         val raw = golden().replace(""""contradictions":[]""", """"contradictions":["$id"]""")
-        val e = (HarnessDecoder.decodeQueryResult(raw).toRetrievalState() as RetrievalUiState.Ready)
-            .evidence
+        val e = (
+            HarnessDecoder.decodeQueryResult(raw).toRetrievalState(target)
+                as RetrievalUiState.Ready
+            ).evidence
         val view = e.contradictions.single()
         assertEquals(id, view.groupId)
         assertTrue(view.members.isEmpty())
@@ -92,19 +111,31 @@ class RetrievalMappingTest {
         // The Harness abstaining is it working correctly. Calling that a client failure
         // would blame the wrong component and bury the reason code.
         val outcome: HarnessOutcome<QueryResult> = HarnessOutcome.Unsuccessful("abstained", "no-evidence")
-        val state = outcome.toRetrievalState()
+        val state = outcome.toRetrievalState(target)
         assertTrue(state is RetrievalUiState.Declined)
         assertEquals("abstained", (state as RetrievalUiState.Declined).disposition)
         assertEquals("no-evidence", state.reasonCode)
     }
 
     @Test
-    fun a_client_refusal_keeps_its_own_reason() {
+    fun a_contract_mismatch_is_reported_as_a_version_problem_not_a_refusal() {
+        // Both mean "the reply was not read", and only one is fixed by shipping software.
+        // A user told "something went wrong" would try pairing again, forever.
         val outcome: HarnessOutcome<QueryResult> =
             HarnessOutcome.Refused(HarnessRefusal.RuntimeContract("0.4.0", "0.3.2"))
-        val state = outcome.toRetrievalState()
-        assertTrue(state is RetrievalUiState.Refused)
-        assertTrue((state as RetrievalUiState.Refused).detail.contains("0.4.0"))
+        val state = outcome.toRetrievalState(target)
+        assertTrue("got $state", state is RetrievalUiState.Incompatible)
+        assertTrue((state as RetrievalUiState.Incompatible).detail.contains("0.4.0"))
+    }
+
+    @Test
+    fun a_spent_token_is_reported_as_a_session_to_restore() {
+        // `token-expired` has a remedy the user can perform, so it must not be folded into
+        // "the expert did not answer" -- which would leave them waiting on a Foundry that
+        // is working perfectly.
+        val outcome: HarnessOutcome<QueryResult> =
+            HarnessOutcome.Unsuccessful("failed", "token-expired")
+        assertTrue(outcome.toRetrievalState(target) is RetrievalUiState.SessionExpired)
     }
 
     // ── no answer, anywhere ─────────────────────────────────────────────────
