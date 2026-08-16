@@ -147,17 +147,68 @@ data class ServerStatus(
      * server whose model is loaded for as long as the process exists.
      */
     val modelLoaded: Boolean? = null,
+    /**
+     * The server's own label for the selected model, already sanitised, or null.
+     *
+     * EPHEMERAL. It lives in this status object for as long as the status does and is
+     * never written to Room. A rename in llama-swap's config therefore shows up without
+     * an app change and without editing the user's provider row -- see [ModelDisplayName].
+     */
+    val displayName: String? = null,
 )
 
-/** One entry of a swap proxy's /v1/models. */
+/**
+ * One entry of a swap proxy's /v1/models.
+ *
+ * MODELS ONLY WHAT IT USES. The live server also sends `object`, `created`, `owned_by`,
+ * `description` and `meta`; none is declared here, and `ignoreUnknownKeys = true` drops
+ * them. `description` is deliberately absent rather than read-and-ignored: it carries
+ * strings like "MEASURED AT 2.8 tok/s" and "~24 tok/s", which is CONFIGURATION TEXT
+ * someone typed into a YAML file, not a measurement this app or that server took. A
+ * throughput figure on screen must come from an observed inference, so the safest place
+ * for that field is unreachable from the type system.
+ */
 @Serializable
-private data class SwapModel(val id: String = "", val status: SwapStatus? = null)
+internal data class SwapModel(
+    val id: String = "",
+    val status: SwapStatus? = null,
+    /** The server's display label. Untrusted, and sanitised before it reaches a screen. */
+    val name: String? = null,
+)
 
 @Serializable
-private data class SwapStatus(val value: String = "")
+internal data class SwapStatus(val value: String = "")
 
 @Serializable
-private data class SwapModels(val data: List<SwapModel> = emptyList())
+internal data class SwapModels(val data: List<SwapModel> = emptyList())
+
+/**
+ * LENIENT ON PURPOSE, AND THE OPPOSITE OF THE HARNESS DECODER.
+ *
+ * This app now parses two families of JSON under deliberately contradictory settings, and
+ * the contradiction is the design rather than an inconsistency to reconcile:
+ *
+ *   llama.cpp / llama-swap  ignoreUnknownKeys = TRUE
+ *     A third-party server on its own release cadence. The live `/v1/models` already
+ *     sends five fields this app does not model, and upstream adds more between
+ *     versions. Refusing them would mean a llama.cpp update breaks chat -- an
+ *     availability failure caused by strictness that protects nothing, since none of
+ *     these fields carries authority.
+ *
+ *   Knowledge Foundry       ignoreUnknownKeys = FALSE   (see HarnessDecoder.STRICT)
+ *     A closed contract where every schema is additionalProperties: false, and where the
+ *     payloads carry trust states and capability grants. An unrecognised field there
+ *     means the document was written to an agreement this build does not share, and
+ *     reading the rest would produce a confident screen from a half-understood reply.
+ *
+ * Leniency is a per-contract judgement about what a surprise MEANS, not a house style.
+ * Applying either setting to the other surface would be a real defect.
+ */
+internal val LENIENT_JSON = Json {
+    ignoreUnknownKeys = true
+    isLenient = true
+    explicitNulls = false
+}
 
 @Singleton
 class LlamaClient @Inject constructor() {
@@ -168,12 +219,7 @@ class LlamaClient @Inject constructor() {
     // when it landed, not the one that answered. The endpoint is a property of the
     // call, so it travels as an argument.
     private val client = HttpClient(io.ktor.client.engine.cio.CIO) {
-        install(ContentNegotiation) {
-            // The server sends fields this app does not model, and adds more between
-            // releases. Ignoring unknown keys is what keeps a llama.cpp update from
-            // breaking the app.
-            json(Json { ignoreUnknownKeys = true; isLenient = true; explicitNulls = false })
-        }
+        install(ContentNegotiation) { json(LENIENT_JSON) }
         install(HttpTimeout) {
             // Generation on a 1.2B at ~22 tok/s can legitimately take a while; a
             // default 15s timeout would abort correct answers mid-sentence.
@@ -208,10 +254,22 @@ class LlamaClient @Inject constructor() {
                     reachable = false,
                     error = "proxy is up but does not know the model \"$model\"",
                 )
+            // REACHABLE IS ABOUT THE PROXY, NOT THE WEIGHTS.
+            //
+            // llama-swap answers /v1/models instantly and loads a model on demand when a
+            // completion arrives, so every model reads "unloaded" until something asks
+            // for one -- which is the ordinary resting state, observed on the live
+            // server with all three models unloaded. Reporting that as unreachable would
+            // be false, and worse, it would gate the very request that loads the model:
+            // the user would be told to fix a server that is working and waiting.
+            //
+            // `modelLoaded = false` is therefore residency, and nothing else reads it as
+            // a reason to refuse a send.
             ServerStatus(
                 reachable = true,
                 model = model,
                 modelLoaded = entry.status?.value == "loaded",
+                displayName = ModelDisplayName.sanitize(entry.name),
             )
         }.getOrElse { e -> unreachable(baseUrl, e) }
 
