@@ -226,6 +226,59 @@ jobs:
             cp "$so" "out/${{ matrix.abi }}/"
           done
 
+          # SHIP THE RUNTIME LIBRARIES THE BUILD NEEDS BUT DOES NOT EMIT.
+          #
+          # OBSERVED ON A PHYSICAL DEVICE, and invisible to every build:
+          #
+          #   dlopen failed: library "libomp.so" not found:
+          #                  needed by .../lib/arm64/libggml-base.so
+          #
+          # Eight arm64 libraries declare NEEDED libomp.so. It is part of the NDK, not
+          # part of this build, and Android does not provide it -- so nothing supplies
+          # it and embedded inference dies at System.loadLibrary while CI stays green.
+          #
+          # Upstream never hits this because their example builds through AGP, which
+          # collects the NDK's runtime libraries into the APK on their behalf. This
+          # workflow runs cmake standalone and zips exactly what cmake wrote, so the
+          # dependency was silently dropped. The libraries were correct all along; the
+          # PACKAGING was short one file.
+          #
+          # Turning GGML_OPENMP off would also have removed the symptom, and would have
+          # meant overriding the arm64 setting upstream's own Android CMakeLists makes
+          # deliberately -- the exact "modify what you should adopt" trap this file
+          # warns about twice above. Bundling is what AGP would have done.
+          #
+          # Driven off the actual NEEDED entries rather than a hardcoded "arm64 needs
+          # OpenMP", so an upstream flip in either direction needs no edit here, and a
+          # NEW unbundled dependency fails the build instead of reaching a device.
+          case "${{ matrix.abi }}" in
+            arm64-v8a) NDK_ARCH=aarch64; NDK_TRIPLE=aarch64-linux-android ;;
+            x86_64)    NDK_ARCH=x86_64;  NDK_TRIPLE=x86_64-linux-android ;;
+            *) echo "::error::No NDK arch mapped for ${{ matrix.abi }}"; exit 1 ;;
+          esac
+          LLVM="${{ steps.tools.outputs.ndk }}/toolchains/llvm/prebuilt/linux-x86_64"
+          READELF="$LLVM/bin/llvm-readelf"
+          [ -x "$READELF" ] || { echo "::error::llvm-readelf not found at $READELF"; exit 1; }
+
+          # Provided by the platform at runtime; everything else has to travel with us.
+          PLATFORM_LIBS='^lib(c|m|dl|log|android|stdc\+\+|z|EGL|GLESv[0-9]|OpenSLES|vulkan|nativewindow|mediandk|camera2ndk|jnigraphics)\.so$'
+
+          needed=$(find "out/${{ matrix.abi }}" -name '*.so' -exec "$READELF" -d {} + 2>/dev/null \
+                   | sed -n 's/.*(NEEDED).*Shared library: \[\(.*\)\]/\1/p' | sort -u)
+          for lib in $needed; do
+            printf '%s\n' "$lib" | grep -Eq "$PLATFORM_LIBS" && continue
+            [ -f "out/${{ matrix.abi }}/$lib" ] && continue
+            src=$(find "$LLVM" -name "$lib" -type f 2>/dev/null \
+                  | grep -E "/($NDK_ARCH|$NDK_TRIPLE)/" | head -1)
+            if [ -z "$src" ]; then
+              echo "::error::$lib is NEEDED by the ${{ matrix.abi }} build output, is not a platform library, and was not found in the NDK. It would be missing at dlopen time."
+              exit 1
+            fi
+            cp "$src" "out/${{ matrix.abi }}/"
+            cp "$src" "symbols/${{ matrix.abi }}/"
+            echo "bundled runtime dependency $lib from $src"
+          done
+
           # STRIP, and keep the symbols separately. Measured: 172 MB -> 19 MB, so this
           # is not a tidy-up, it is the difference between a 22 MB app and a 175 MB one.
           #
