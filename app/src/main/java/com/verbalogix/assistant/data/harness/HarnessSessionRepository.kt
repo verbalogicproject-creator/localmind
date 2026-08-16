@@ -3,6 +3,8 @@ package com.verbalogix.assistant.data.harness
 import com.verbalogix.assistant.data.capability.Capabilities
 import com.verbalogix.assistant.data.capability.CapabilitySource
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -54,13 +56,31 @@ class HarnessSessionRepository @Inject constructor(
     override fun capabilities(): Flow<Capabilities> = _capabilities.asStateFlow()
 
     /**
-     * Start collecting offered credentials and keep the session rotating.
+     * The scope the session lives in: this object's own, for the life of the process.
      *
-     * Takes a scope rather than creating one: the caller owns the lifetime, and a
-     * repository that spawned its own `GlobalScope` would keep a rotation timer alive
-     * past the thing that wanted it.
+     * IT USED TO TAKE A SCOPE FROM ITS CALLER, and that was wrong twice over.
+     *
+     * `PairingViewModel` passed its `viewModelScope`, and that view model is created by
+     * BOTH the Setup and the Experts destinations -- each `hiltViewModel()` scoped to its
+     * own nav entry. So `start` ran twice: two credential collectors and TWO ROTATION
+     * LOOPS, unguarded.
+     *
+     * And a nav entry's scope is cancelled when the user navigates away, so leaving
+     * Experts for Chat STOPPED THE ROTATION TIMER. The session would then expire at 300
+     * seconds and greet the user with "Pair again" on their return -- a failure that
+     * would read as broken rotation while the real fault was lifetime ownership.
+     *
+     * The reasoning that produced it is recorded because it sounds right: a repository
+     * spawning its own scope was avoided as GlobalScope-by-another-name. But this is a
+     * `@Singleton` holding APP-WIDE session state; a scope that matches the object's own
+     * lifetime is not a leak, it is the correct owner. A screen is not.
+     *
+     * `SupervisorJob` so a failure in the credential collector cannot cancel rotation,
+     * and vice versa -- they are independent concerns sharing a lifetime, not a pipeline.
      */
-    fun start(scope: CoroutineScope) {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    init {
         scope.launch {
             credentials.credentials().collect { credential -> pair(credential) }
         }

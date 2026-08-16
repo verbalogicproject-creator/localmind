@@ -30,12 +30,12 @@ class PairingViewModel @Inject constructor(
 
     val session: StateFlow<HarnessSessionState> = repository.session
 
-    init {
-        // Starting here rather than in the repository's own constructor keeps the
-        // rotation loop tied to a scope something owns. `viewModelScope` on a singleton
-        // repository's first consumer is the earliest honest owner available.
-        repository.start(viewModelScope)
-    }
+    // NO init BLOCK, deliberately. This used to call `repository.start(viewModelScope)`,
+    // which was wrong in two ways at once: this view model is created by BOTH the Setup
+    // and the Experts destinations, so the session started twice with two rotation loops
+    // -- and a nav entry's scope dies when the user navigates away, so leaving Experts
+    // stopped the timer and the session expired behind their back. The repository owns
+    // its own lifetime now; a screen must not own an app-wide session.
 
     /**
      * Offer a pasted credential.
