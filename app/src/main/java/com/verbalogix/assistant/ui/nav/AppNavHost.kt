@@ -40,14 +40,12 @@ import com.verbalogix.assistant.ui.evidence.EvidenceDrawer
 import com.verbalogix.assistant.ui.evidence.EvidenceViewModel
 import com.verbalogix.assistant.ui.experts.ExpertDetailScreen
 import com.verbalogix.assistant.ui.experts.ExpertDetailViewModel
-import com.verbalogix.assistant.ui.experts.ExpertLibraryScreen
+import com.verbalogix.assistant.ui.experts.ExpertsDestination
 import com.verbalogix.assistant.ui.experts.ExpertLibraryViewModel
 import com.verbalogix.assistant.ui.providers.ModelsProvidersScreen
 import com.verbalogix.assistant.ui.pairing.PairingPanel
 import com.verbalogix.assistant.ui.pairing.PairingViewModel
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import com.verbalogix.assistant.ui.setup.SetupReadinessScreen
 import com.verbalogix.assistant.ui.tools.NoToolProposalSource
 import com.verbalogix.assistant.ui.tools.ToolApprovalSheet
@@ -282,23 +280,17 @@ fun AppNavHost(
                 val pairing: PairingViewModel = hiltViewModel()
                 val session by pairing.session.collectAsStateWithLifecycle()
 
-                // THE PANEL SITS ABOVE THE LIBRARY, not behind a menu. When the library
-                // is unavailable, the session is almost always why -- so the remedy
-                // belongs on the screen that is failing, next to the explanation of what
-                // is missing. Hiding it once connected would be worse: a user whose
-                // session has just ended needs to find it in the same place.
-                // No padding here: the NavHost already applies the Scaffold's insets to
-                // every destination, and re-applying them would double the bottom gap
-                // above the navigation bar.
-                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
-                    PairingPanel(state = session, onPair = pairing::pair)
-                    ExpertLibraryScreen(
-                        state = state,
-                        onOpenExpert = { releaseId ->
-                            Destinations.expertDetail(releaseId)?.let(navController::navigate)
-                        },
-                    )
-                }
+                // ONE COMPOSABLE, shared with the regression test. Assembling this
+                // inline is what produced the nested-scroll crash: a Column with
+                // verticalScroll around a screen whose Ready branch is a LazyColumn.
+                ExpertsDestination(
+                    state = state,
+                    session = session,
+                    onPair = pairing::pair,
+                    onOpenExpert = { releaseId ->
+                        Destinations.expertDetail(releaseId)?.let(navController::navigate)
+                    },
+                )
             }
 
             // ── experts/{releaseId} ─────────────────────────────────────────────

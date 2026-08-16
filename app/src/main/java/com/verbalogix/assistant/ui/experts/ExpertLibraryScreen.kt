@@ -67,6 +67,17 @@ fun ExpertLibraryScreen(
     state: ExpertLibraryUiState,
     onOpenExpert: (releaseId: String) -> Unit,
     modifier: Modifier = Modifier,
+    /**
+     * Content above the library, inside THIS screen's scroll.
+     *
+     * A slot rather than a sibling, and that distinction is the whole bug fix. The
+     * destination used to wrap this screen and the pairing panel in a
+     * `Column(verticalScroll(...))` -- two scroll owners, one of them lazy -- which is an
+     * infinite-height measure and a hard crash the moment a non-empty catalog renders.
+     * Passing the panel IN means there is exactly one scrolling owner and no way for a
+     * caller to add a second by accident.
+     */
+    header: @Composable () -> Unit = {},
 ) {
     // Survives rotation and process death: a user who typed a digest fragment to find one
     // row should not have to type it again because the keyboard resized the window.
@@ -79,131 +90,132 @@ fun ExpertLibraryScreen(
             .testTag(TAG_EXPERT_LIBRARY),
         color = MaterialTheme.colorScheme.background,
     ) {
-        Column(
+        // Computed OUTSIDE the lazy content: `remember` needs composable scope, and the
+        // lazy DSL's item builders are not that. Also correct on its own terms -- these
+        // derive from the whole list, so recomputing them per visible item would be work
+        // proportional to scrolling.
+        val ready = state as? ExpertLibraryUiState.Ready
+        val visible = remember(ready, query, filter) {
+            ready?.experts.orEmpty().search(query).filter { filter.matches(it) }
+        }
+        // Over the WHOLE list, not the visible subset, so an abbreviation does not change
+        // length as the user types -- and two ids that collide stay distinguishable even
+        // when a filter is currently hiding one of them.
+        val short = remember(ready) {
+            abbreviateIdentities(ready?.experts.orEmpty().map { it.releaseId })
+        }
+
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(AmberTokens.mobileMargin),
             verticalArrangement = Arrangement.spacedBy(AmberTokens.mobileMargin),
         ) {
-            Text(
-                text = "Experts",
-                style = MaterialTheme.typography.titleLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.semantics { heading() },
-            )
-            Text(
-                text = "Knowledge packs mounted by Knowledge Foundry. This app reads them " +
-                    "and changes none of them.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+            item(key = "header") { header() }
 
-            when (state) {
-                ExpertLibraryUiState.Loading -> StatusLine(
-                    mark = MARK_INFO,
-                    label = "Checking what is available…",
-                )
-
-                is ExpertLibraryUiState.Unavailable -> Column(
-                    verticalArrangement = Arrangement.spacedBy(AmberTokens.mobileMargin),
-                ) {
-                    UnavailableNotice(state.capability)
+            item(key = "title") {
+                Column(verticalArrangement = Arrangement.spacedBy(AmberTokens.baseUnit)) {
                     Text(
-                        "Localmind still works without this. Direct chat is unaffected, " +
-                            "and answers keep whatever evidence they arrived with.",
+                        text = "Experts",
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        modifier = Modifier.semantics { heading() },
+                    )
+                    Text(
+                        text = "Knowledge packs mounted by Knowledge Foundry. This app " +
+                            "reads them and changes none of them.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
+            }
 
-                ExpertLibraryUiState.Empty -> EmptyNotice(
-                    title = "No experts mounted",
-                    body = "Knowledge Foundry reported no mounted packs.",
-                )
+            when (state) {
+                ExpertLibraryUiState.Loading -> item(key = "loading") {
+                    StatusLine(mark = MARK_INFO, label = "Checking what is available…")
+                }
+
+                is ExpertLibraryUiState.Unavailable -> item(key = "unavailable") {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(AmberTokens.mobileMargin),
+                    ) {
+                        UnavailableNotice(state.capability)
+                        Text(
+                            "Localmind still works without this. Direct chat is " +
+                                "unaffected, and answers keep whatever evidence they " +
+                                "arrived with.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+
+                ExpertLibraryUiState.Empty -> item(key = "empty") {
+                    EmptyNotice(
+                        title = "No experts mounted",
+                        body = "Knowledge Foundry reported no mounted packs.",
+                    )
+                }
 
                 // SEPARATE FROM Refused, because only this one is fixed by a release. A
                 // user told "something went wrong" cannot tell whether waiting helps.
-                is ExpertLibraryUiState.Incompatible -> EmptyNotice(
-                    title = "Version mismatch",
-                    body = state.detail,
-                )
+                is ExpertLibraryUiState.Incompatible -> item(key = "incompatible") {
+                    EmptyNotice(title = "Version mismatch", body = state.detail)
+                }
 
-                is ExpertLibraryUiState.Refused -> EmptyNotice(
-                    title = "Reply not accepted",
-                    body = state.detail,
-                )
+                is ExpertLibraryUiState.Refused -> item(key = "refused") {
+                    EmptyNotice(title = "Reply not accepted", body = state.detail)
+                }
 
-                is ExpertLibraryUiState.Ready -> ReadyLibrary(
-                    experts = state.experts,
-                    query = query,
-                    onQueryChange = { query = it },
-                    filter = filter,
-                    onFilterChange = { filter = it },
-                    onOpenExpert = onOpenExpert,
-                )
+                is ExpertLibraryUiState.Ready -> {
+                    item(key = "search") {
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            label = { Text("Search name or id") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag(TAG_EXPERT_SEARCH),
+                        )
+                    }
+                    item(key = "filters") {
+                        Row(horizontalArrangement = Arrangement.spacedBy(AmberTokens.baseUnit)) {
+                            for (option in ExpertFilter.entries) {
+                                FilterChip(
+                                    selected = filter == option,
+                                    onClick = { filter = option },
+                                    label = { Text(option.label()) },
+                                    modifier = Modifier.minimumTouchTarget(),
+                                )
+                            }
+                        }
+                    }
+                    if (visible.isEmpty()) {
+                        // DISTINCT FROM Empty. "Nothing is mounted" and "nothing matches
+                        // what you typed" are different facts, and only one has a remedy
+                        // the user can act on.
+                        item(key = "no-match") {
+                            EmptyNotice(
+                                title = "Nothing matches",
+                                body = "No mounted expert matches this filter and search.",
+                            )
+                        }
+                    } else {
+                        items(visible, key = { it.releaseId }) { expert ->
+                            ExpertCard(
+                                expert = expert,
+                                abbreviatedId = short[expert.releaseId] ?: expert.releaseId,
+                                onOpen = { onOpenExpert(expert.releaseId) },
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 }
 
-@Composable
-private fun ReadyLibrary(
-    experts: List<ExpertSummary>,
-    query: String,
-    onQueryChange: (String) -> Unit,
-    filter: ExpertFilter,
-    onFilterChange: (ExpertFilter) -> Unit,
-    onOpenExpert: (String) -> Unit,
-) {
-    val visible = remember(experts, query, filter) {
-        experts.search(query).filter { filter.matches(it) }
-    }
-    // Computed over the WHOLE list, not the visible subset, so an abbreviation does not
-    // change length as the user types -- and so two ids that collide stay distinguishable
-    // even when a filter is currently hiding one of them.
-    val short = remember(experts) { abbreviateIdentities(experts.map { it.releaseId }) }
-
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        label = { Text("Search name or id") },
-        singleLine = true,
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag(TAG_EXPERT_SEARCH),
-    )
-
-    Row(horizontalArrangement = Arrangement.spacedBy(AmberTokens.baseUnit)) {
-        for (option in ExpertFilter.entries) {
-            FilterChip(
-                selected = filter == option,
-                onClick = { onFilterChange(option) },
-                label = { Text(option.label()) },
-                modifier = Modifier.minimumTouchTarget(),
-            )
-        }
-    }
-
-    if (visible.isEmpty()) {
-        // DISTINCT FROM Empty. "Nothing is mounted" and "nothing matches what you typed"
-        // are different facts, and the second one has an obvious remedy.
-        EmptyNotice(
-            title = "Nothing matches",
-            body = "No mounted expert matches this filter and search.",
-        )
-        return
-    }
-
-    LazyColumn(verticalArrangement = Arrangement.spacedBy(AmberTokens.baseUnit)) {
-        items(visible, key = { it.releaseId }) { expert ->
-            ExpertCard(
-                expert = expert,
-                abbreviatedId = short[expert.releaseId] ?: expert.releaseId,
-                onOpen = { onOpenExpert(expert.releaseId) },
-            )
-        }
-    }
-}
 
 @Composable
 private fun ExpertCard(
