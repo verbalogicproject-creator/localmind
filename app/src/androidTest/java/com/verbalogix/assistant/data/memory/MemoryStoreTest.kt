@@ -53,10 +53,23 @@ class MemoryStoreTest {
 
     @Before
     fun copyFixtureFromAssets() {
-        val ctx = InstrumentationRegistry.getInstrumentation().targetContext
-        dbFile = File(ctx.filesDir, "memory-fixture.db")
+        // Two contexts, on purpose:
+        //   testCtx    = the TEST APK (Instrumentation.getContext()). Test assets
+        //                like memory-fixture.db land here because they were declared
+        //                in src/androidTest/assets/, which is packaged into the test
+        //                APK, NOT the main app APK. Using targetContext.assets.open
+        //                looks in the wrong APK and raises FileNotFoundException at
+        //                nativeOpenAsset with the file name -- exactly what the
+        //                earlier version of this test did, verified against emulator
+        //                run 31920999393 on 2026-08-16.
+        //   targetCtx  = the MAIN app APK. filesDir here is where the app under test
+        //                would place an imported store.db in production, so writing
+        //                the fixture here mirrors the real path.
+        val testCtx = InstrumentationRegistry.getInstrumentation().context
+        val targetCtx = InstrumentationRegistry.getInstrumentation().targetContext
+        dbFile = File(targetCtx.filesDir, "memory-fixture.db")
         if (dbFile.exists()) dbFile.delete()
-        ctx.assets.open("memory-fixture.db").use { input ->
+        testCtx.assets.open("memory-fixture.db").use { input ->
             dbFile.outputStream().use { output -> input.copyTo(output) }
         }
     }
