@@ -2,6 +2,9 @@ package com.verbalogix.assistant.data.harness
 
 import java.security.MessageDigest
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -16,9 +19,9 @@ import org.junit.Test
  *   client-capabilities-response.json   77799b8f…
  *   client-empty-catalog-response.json  f0eacd3c…
  *
- * WHAT THESE DO NOT PROVE. The only catalog golden is EMPTY, so not one release summary
- * is exercised. `ExpertReleaseSummary` is transcribed from its schema and has never met a
- * server response; a populated Expert Library is unverified and is not claimed anywhere.
+ * These two cover the ENVELOPE, negotiation, correlation and the empty-catalog frame.
+ * The populated catalog, release detail and both token responses arrived later and are
+ * proved in `HarnessStage3cGoldenTest` below.
  */
 class HarnessDecoderGoldenTest {
 
@@ -135,5 +138,167 @@ class HarnessDecoderGoldenTest {
         )
         val refusal = (outcome as HarnessOutcome.Refused).refusal
         assertTrue(refusal is HarnessRefusal.OperationMismatch)
+    }
+}
+
+/**
+ * The four goldens that arrived with Stage 3C, decoded from the server's own bytes.
+ *
+ * Kept separate from the first two so the history stays legible: `ExpertReleaseSummary`,
+ * the detail decoder and the token decoder were all written from schemas and shipped
+ * DISABLED or unverified, and each was promoted only when its bytes arrived. This file is
+ * the promotion evidence.
+ */
+class HarnessStage3cGoldenTest {
+
+    private fun golden(name: String): String =
+        checkNotNull(javaClass.classLoader?.getResourceAsStream("goldens/stage3c-v1/$name")) {
+            "missing golden: $name"
+        }.readBytes().decodeToString()
+
+    private fun sha256(text: String): String =
+        java.security.MessageDigest.getInstance("SHA-256").digest(text.toByteArray())
+            .joinToString("") { "%02x".format(it) }
+
+    @Test
+    fun the_new_goldens_are_byte_for_byte_what_was_supplied() {
+        assertEquals(
+            "cd60a86d543c06ff638633b7c48df92bd6bf349c446734186aeeecf7afaff46c",
+            sha256(golden("client-populated-catalog-response.json")),
+        )
+        assertEquals(
+            "19f235f477399364679ed560c223abfa001ff693ac03ae64d579932e829502ab",
+            sha256(golden("client-release-detail-response.json")),
+        )
+        assertEquals(
+            "70029e75d75d6bc58a18caa36e4def2b869d703e7122d21e8df544f7086dbced",
+            sha256(golden("client-token-exchange-response.json")),
+        )
+        assertEquals(
+            "baa261465e571f915c5078b61d932f679e65744893005054a679d07883a42943",
+            sha256(golden("client-token-refresh-response.json")),
+        )
+    }
+
+    // ── the populated catalog ───────────────────────────────────────────────
+
+    @Test
+    fun a_populated_catalog_decodes_every_summary_field() {
+        val result = (HarnessDecoder.decodeExpertCatalog(
+            golden("client-populated-catalog-response.json"),
+        ) as HarnessOutcome.Decoded).value
+
+        assertEquals(1L, result.generation)
+        assertEquals(1, result.releases.size)
+        val release = result.releases.single()
+
+        // The fields the Expert Library renders, each from the server rather than derived.
+        assertEquals("Knowledge Foundry Project Expert", release.name)
+        assertEquals("org.knowledge-foundry", release.namespace)
+        assertEquals("project-expert", release.slug)
+        assertEquals("1.0.0", release.version)
+        assertEquals("active", release.mountState)
+        assertEquals("trusted", release.trustState)
+        assertEquals("moderate", release.riskClass)
+        assertEquals("development", release.publicationChannel)
+        assertEquals(listOf("internal"), release.allowedSensitivities)
+        assertEquals(8, release.capabilities.size)
+    }
+
+    @Test
+    fun catalog_identities_use_distinct_kinds_for_pack_and_release() {
+        val release = (HarnessDecoder.decodeExpertCatalog(
+            golden("client-populated-catalog-response.json"),
+        ) as HarnessOutcome.Decoded).value.releases.single()
+
+        // `kf:pack:` and `kf:pack-release:` are DIFFERENT namespaces. Keying a detail
+        // route on the wrong one would look plausible and resolve to nothing.
+        assertTrue(release.packId.startsWith("kf:pack:"))
+        assertTrue(release.releaseId.startsWith("kf:pack-release:"))
+        assertNotEquals(release.packId, release.releaseId)
+        assertTrue(HarnessDecoder.isWellFormedIdentity(release.packId))
+        assertTrue(HarnessDecoder.isWellFormedIdentity(release.releaseId))
+    }
+
+    // ── release detail ──────────────────────────────────────────────────────
+
+    @Test
+    fun the_release_detail_golden_decodes_all_three_sections() {
+        val result = (HarnessDecoder.decodeExpertReleaseDetail(
+            golden("client-release-detail-response.json"),
+        ) as HarnessOutcome.Decoded).value
+
+        assertEquals("Knowledge Foundry Project Expert", result.release.name)
+        assertEquals("accepted", result.install.compatibility)
+        assertTrue(result.install.signerKeyId.startsWith("ed25519:"))
+        assertTrue(result.install.dependencyReleaseIds.isEmpty())
+        // Required AND nullable: the key is present and its value is null, which means
+        // "the Harness says there is no predecessor" -- not "the Harness did not say".
+        assertNull(result.lifecycle.predecessorReleaseId)
+        assertNull(result.lifecycle.rollbackReleaseId)
+        assertNull(result.lifecycle.supersededContentSha256)
+    }
+
+    @Test
+    fun a_catalog_reply_is_not_accepted_as_a_release_detail_reply() {
+        val outcome = HarnessDecoder.decodeExpertReleaseDetail(
+            golden("client-populated-catalog-response.json"),
+        )
+        assertTrue((outcome as HarnessOutcome.Refused).refusal is HarnessRefusal.OperationMismatch)
+    }
+
+    // ── tokens ──────────────────────────────────────────────────────────────
+
+    @Test
+    fun the_exchange_golden_decodes_and_grants_exactly_the_four_scopes() {
+        val result = HarnessTokenDecoder.decode(
+            golden("client-token-exchange-response.json"),
+            expectedClientInstanceId = "0123456789abcdef0123456789abcdef",
+            nowEpochSeconds = 1_000_000,
+        )
+        val granted = result as TokenDecodeResult.Granted
+        assertEquals(HarnessScope.REQUESTED, granted.scopes)
+        // expires_in is 300 -- the value this client asks for, echoed back.
+        assertEquals(1_000_300L, granted.expiresAtEpochSeconds)
+    }
+
+    @Test
+    fun the_refresh_golden_decodes_to_a_distinct_successor_token() {
+        val exchange = HarnessTokenDecoder.decode(
+            golden("client-token-exchange-response.json"), "0123456789abcdef0123456789abcdef", 1_000_000,
+        ) as TokenDecodeResult.Granted
+        val refresh = HarnessTokenDecoder.decode(
+            golden("client-token-refresh-response.json"), "0123456789abcdef0123456789abcdef", 1_000_000,
+        ) as TokenDecodeResult.Granted
+
+        // Rotation must actually rotate: same shape, same scopes, DIFFERENT credential.
+        // Comparing the values themselves, because `toString` redacts them -- and an
+        // assertion over two redacted strings would compare two identical placeholders
+        // and pass no matter what the server sent.
+        assertEquals(exchange.scopes, refresh.scopes)
+        assertNotEquals(exchange.token.value, refresh.token.value)
+    }
+
+    @Test
+    fun a_token_issued_for_another_client_instance_is_refused() {
+        // The echoed id is compared, not trusted. Adopting a token minted for someone
+        // else's request would bind this app to a session it never asked for.
+        val result = HarnessTokenDecoder.decode(
+            golden("client-token-exchange-response.json"),
+            expectedClientInstanceId = "ffffffffffffffffffffffffffffffff",
+            nowEpochSeconds = 1_000_000,
+        )
+        assertTrue(result is TokenDecodeResult.Refused)
+        assertTrue((result as TokenDecodeResult.Refused).reason.contains("different client instance"))
+    }
+
+    @Test
+    fun a_token_refusal_never_contains_the_token() {
+        val mutated = golden("client-token-exchange-response.json")
+            .replace(""""token_type":"Bearer"""", """"token_type":"MAC"""")
+        val result = HarnessTokenDecoder.decode(mutated, "0123456789abcdef0123456789abcdef", 1_000)
+        val reason = (result as TokenDecodeResult.Refused).reason
+        assertFalse("a refusal is the likeliest place for a credential to escape",
+            reason.contains("kft2."))
     }
 }

@@ -28,20 +28,25 @@ object SchemaNegotiation {
      * only against payloads its author invented is verified against its author's
      * assumptions -- this project has already paid for that lesson in a different form.
      *
-     * `expert-release-detail/3.0` is therefore ABSENT despite having a closed schema and
-     * a transcribable shape: no server-emitted detail response exists yet. Expert Detail
-     * consequently refuses, with a reason, which is the honest state rather than a
-     * limitation to work around. See [SchemaIds.EXPERT_RELEASE_DETAIL].
+     * `expert-release-detail/3.0` joined the set when its golden arrived, not before. It
+     * spent a commit here as a named absence for exactly that reason, and the history is
+     * worth keeping: the gap was visible and greppable rather than implicit.
      *
-     * The catalog entry is admitted on the strength of an EMPTY golden. That verifies the
-     * envelope, the negotiation, the operation correlation and the catalog frame -- but
-     * not one release summary, because the golden contains none. A populated Expert
-     * Library is not verified by anything here and must not be claimed.
+     * The catalog was first admitted on an EMPTY golden, which verified the envelope,
+     * negotiation, correlation and catalog frame but not one release summary. The
+     * populated golden closed that gap; a release summary is now observed rather than
+     * transcribed.
+     *
+     * `localmind-token-response/1.0` is NOT here and never will be -- see
+     * [HarnessTokenDecoder]. This set governs documents carried inside
+     * `operation-response/3.0` and selected by the negotiation header; a token response
+     * is neither, and its routes are exempt from negotiation entirely.
      */
     val ACCEPTED: Set<String> = setOf(
         SchemaIds.OPERATION_RESPONSE,
         SchemaIds.CAPABILITIES,
         SchemaIds.EXPERT_CATALOG,
+        SchemaIds.EXPERT_RELEASE_DETAIL,
     )
 
     /** The `schema` field's shape, checked before its value is compared. */

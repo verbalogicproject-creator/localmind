@@ -37,16 +37,20 @@ class SchemaNegotiationTest {
                 "knowledge-foundry-operation-response/3.0",
                 "knowledge-foundry-capabilities/3.0",
                 "knowledge-foundry-expert-catalog/3.0",
+                "knowledge-foundry-expert-release-detail/3.0",
             ),
             SchemaNegotiation.ACCEPTED,
         )
     }
 
     @Test
-    fun expert_release_detail_stays_out_until_a_golden_exists_for_it() {
-        // The one id with a closed schema, a transcribable shape, and no server response
-        // to check it against. Admitting it would be the exact mistake this file guards.
-        assertFalse(SchemaIds.EXPERT_RELEASE_DETAIL in SchemaNegotiation.ACCEPTED)
+    fun token_responses_are_never_admitted_to_the_negotiated_set() {
+        // Not "not yet" -- never. This set governs documents carried inside
+        // operation-response/3.0 and selected by the Accept-Schema header. A token
+        // response has its own fixed schema and its routes are exempt from negotiation,
+        // so admitting it would make a future /4.0 appear to govern a document it has no
+        // relationship with.
+        assertFalse(HarnessTokenDecoder.SCHEMA in SchemaNegotiation.ACCEPTED)
     }
 
     @Test

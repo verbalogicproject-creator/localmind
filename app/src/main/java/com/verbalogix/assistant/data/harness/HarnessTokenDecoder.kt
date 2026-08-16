@@ -14,9 +14,9 @@ import kotlinx.serialization.Serializable
  * different agreements, and a future `/4.0` negotiation would then appear to govern a
  * document it has no relationship with.
  *
- * FIXTURE-GATED. [ENABLED] is false because no server-emitted token response exists yet.
- * The decoder is complete and strict; what it lacks is bytes from the server to prove it
- * agrees with them. Turning it on is one constant plus the golden test that justifies it.
+ * FIXTURE-GATED, and the gate is now open. [ENABLED] was false while this was transcription
+ * only; the exchange and refresh goldens arrived and both decode through it unchanged.
+ * The ordering was the point -- the constant moved after the bytes existed, not before.
  */
 object HarnessTokenDecoder {
 
@@ -25,13 +25,12 @@ object HarnessTokenDecoder {
     /**
      * Whether token exchange may run.
      *
-     * FALSE UNTIL A GOLDEN EXISTS. This is the same rule that keeps
-     * `expert-release-detail/3.0` out of the accepted set, applied to the one path where
-     * being wrong is worst: a token decoder that mis-reads a response could hold a
-     * session it should have rejected. Every field below is transcribed from a closed
-     * schema and has never met a real reply.
+     * TRUE since the exchange and refresh goldens arrived. It was false while the
+     * decoder was transcription only -- the path where being wrong is worst, because a
+     * token decoder that mis-reads a response could hold a session it should have
+     * rejected. Both goldens now decode through it unchanged.
      */
-    const val ENABLED = false
+    const val ENABLED = true
 
     @Serializable
     private data class TokenResponse(

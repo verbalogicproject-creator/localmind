@@ -170,14 +170,12 @@ class HarnessTransportTest {
     // ── the token decoder stays fixture-gated ───────────────────────────────
 
     @Test
-    fun the_token_decoder_is_disabled_until_a_server_emitted_golden_exists() {
-        // Same rule as expert-release-detail, applied where being wrong is worst: a
-        // mis-reading decoder could hold a session it should have rejected.
-        assertFalse(HarnessTokenDecoder.ENABLED)
-        assertEquals(
-            TokenDecodeResult.Disabled,
-            HarnessTokenDecoder.decode("{}", "0".repeat(32), nowEpochSeconds = 1_000),
-        )
+    fun the_token_decoder_is_enabled_only_because_its_goldens_arrived() {
+        // It shipped disabled while it was transcription only -- the path where being
+        // wrong is worst, since a mis-reading decoder could hold a session it should
+        // have rejected. The exchange and refresh goldens are what opened this gate;
+        // HarnessDecoderGoldenTest is where they are actually decoded.
+        assertTrue(HarnessTokenDecoder.ENABLED)
     }
 
     @Test

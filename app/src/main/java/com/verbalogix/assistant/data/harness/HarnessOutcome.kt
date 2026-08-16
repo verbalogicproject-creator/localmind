@@ -15,13 +15,12 @@ object SchemaIds {
     const val EXPERT_RELEASE_SUMMARY = "knowledge-foundry-expert-release-summary/3.0"
 
     /**
-     * Present, and deliberately NOT accepted.
+     * Accepted since its golden arrived.
      *
-     * `expert-release-detail/3.0` has a closed schema but no server-emitted golden. The
-     * rule this project has paid to learn is that a decoder verified only against
-     * payloads its author invented is verified against its author's assumptions. So the
-     * id is named here -- so the gap is greppable -- and left out of
-     * [SchemaNegotiation.ACCEPTED] until a real response exists.
+     * It spent one commit named here as a deliberate absence, kept out of
+     * [SchemaNegotiation.ACCEPTED] because a decoder verified only against payloads its
+     * author invented is verified against its author's assumptions. The rule held, the
+     * golden came, and the id moved -- in that order.
      */
     const val EXPERT_RELEASE_DETAIL = "knowledge-foundry-expert-release-detail/3.0"
 

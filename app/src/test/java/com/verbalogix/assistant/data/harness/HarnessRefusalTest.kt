@@ -59,13 +59,14 @@ class HarnessRefusalTest {
     }
 
     @Test
-    fun release_detail_is_refused_because_no_golden_exists_for_it() {
-        // The schema is closed and transcribable; the golden is not there. Until it is,
-        // this id stays out of ACCEPTED and Expert Detail refuses rather than pretending.
-        assertFalse(SchemaIds.EXPERT_RELEASE_DETAIL in SchemaNegotiation.ACCEPTED)
+    fun release_detail_was_admitted_only_after_its_golden_arrived() {
+        // This test previously asserted the OPPOSITE, and firing was its job: the id was
+        // held out of ACCEPTED while it had a closed schema and no server response. The
+        // golden arrived, the decoder was proved against it, and only then did the id
+        // move. The ordering is the rule; this is where it is recorded.
+        assertTrue(SchemaIds.EXPERT_RELEASE_DETAIL in SchemaNegotiation.ACCEPTED)
         assertTrue(
-            SchemaNegotiation.negotiate(SchemaIds.EXPERT_RELEASE_DETAIL)
-                is SchemaVerdict.Unsupported,
+            SchemaNegotiation.negotiate(SchemaIds.EXPERT_RELEASE_DETAIL) is SchemaVerdict.Accepted,
         )
     }
 

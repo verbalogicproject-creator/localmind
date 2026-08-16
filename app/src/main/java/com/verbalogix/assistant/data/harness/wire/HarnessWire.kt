@@ -89,11 +89,11 @@ internal data class ExpertCatalogResult(
 /**
  * `knowledge-foundry-expert-release-summary/3.0`.
  *
- * NEVER EXERCISED AGAINST SERVER BYTES. The only catalog golden that exists is empty, so
- * every field below is transcribed from the schema and has never met a real response.
- * That is stated here rather than discovered later: this type is structurally correct and
- * empirically unverified, and a populated Expert Library must not be claimed to work
- * until a server-emitted non-empty catalog has been decoded.
+ * VERIFIED AGAINST SERVER BYTES. Transcribed from the schema first and unverified for a
+ * time; the populated-catalog and release-detail goldens now decode through this type
+ * unchanged, which is what promoted it from "structurally correct" to "observed". One
+ * type serves both the catalog list and the detail view, so a field cannot drift between
+ * the two representations.
  *
  * `trust_state` is `{"const": "trusted"}` in the schema, which is a stronger statement
  * than it first appears: the catalog NEVER lists an untrusted, revoked or unsigned
@@ -123,4 +123,51 @@ internal data class ExpertReleaseSummary(
     val role: String?,
     @SerialName("allowed_sensitivities") val allowedSensitivities: List<String>,
     @SerialName("proof_limit") val proofLimit: String,
+)
+
+/**
+ * `knowledge-foundry-expert-release-detail/3.0`.
+ *
+ * Three closed sub-objects, and the split is meaningful rather than organisational.
+ * [release] is the same summary the catalog carries, so one type serves both and a field
+ * cannot drift between the list and the detail view. [install] is what verification
+ * established — signer, compatibility, dependencies — and [lifecycle] is where this
+ * release sits relative to its neighbours.
+ *
+ * NOTHING HERE IS AN EVALUATION OR A SOURCE-STANDING FIGURE. Those were asked for early
+ * and exist in no schema; the contract carries provenance and verification facts only.
+ */
+@Serializable
+internal data class ExpertReleaseDetailResult(
+    val schema: String,
+    val release: ExpertReleaseSummary,
+    val install: ExpertInstallFacts,
+    val lifecycle: ExpertLifecycleFacts,
+    @SerialName("proof_limit") val proofLimit: String,
+    @SerialName("result_sha256") val resultSha256: String,
+)
+
+/** What verification established about the installed release. */
+@Serializable
+internal data class ExpertInstallFacts(
+    @SerialName("install_id") val installId: String,
+    @SerialName("signer_key_id") val signerKeyId: String,
+    val compatibility: String,
+    @SerialName("dependency_release_ids") val dependencyReleaseIds: List<String>,
+    @SerialName("verification_sha256") val verificationSha256: String,
+)
+
+/**
+ * Where this release sits in its own history.
+ *
+ * ALL THREE FIELDS ARE REQUIRED AND NULLABLE, which is the distinction that matters: the
+ * key must be present, and its value may be null. A null predecessor means "the Harness
+ * says there is none", not "the Harness did not say" — so an update badge can finally be
+ * driven by a fact rather than inferred from two versions existing.
+ */
+@Serializable
+internal data class ExpertLifecycleFacts(
+    @SerialName("predecessor_release_id") val predecessorReleaseId: String?,
+    @SerialName("rollback_release_id") val rollbackReleaseId: String?,
+    @SerialName("superseded_content_sha256") val supersededContentSha256: String?,
 )

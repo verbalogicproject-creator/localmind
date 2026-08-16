@@ -2,6 +2,8 @@ package com.verbalogix.assistant.data.harness
 
 import com.verbalogix.assistant.data.harness.wire.CapabilitiesResult
 import com.verbalogix.assistant.data.harness.wire.ExpertCatalogResult
+import com.verbalogix.assistant.data.harness.wire.ExpertReleaseDetailResult
+import com.verbalogix.assistant.data.harness.wire.ExpertReleaseSummary
 import com.verbalogix.assistant.data.harness.wire.OperationResponseEnvelope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
@@ -84,31 +86,62 @@ object HarnessDecoder {
             STRICT.decodeFromJsonElement(ExpertCatalogResult.serializer(), element)
         }.also { outcome ->
             if (outcome is HarnessOutcome.Decoded) {
+                // Shared with the detail path. `trust_state` is a const in the schema, so
+                // the catalog never lists an untrusted release -- any other value means
+                // this is not the document the contract describes, and the WHOLE catalog
+                // is refused rather than shown minus the offending entry.
                 for (release in outcome.value.releases) {
-                    // `trust_state` is a const in the schema: the catalog never lists an
-                    // untrusted release. Any other value means this is not the document
-                    // the contract describes, so it is refused rather than displayed
-                    // with a warning badge.
-                    if (release.trustState != SchemaIds.TRUST_STATE_TRUSTED) {
-                        return HarnessOutcome.Refused(
-                            HarnessRefusal.TrustState(release.trustState),
-                        )
+                    validateRelease(release)?.let { return HarnessOutcome.Refused(it) }
+                }
+            }
+        }
+
+    /**
+     * Decode a release-detail response.
+     *
+     * Reuses the same release validation as the catalog rather than repeating it: the
+     * detail carries the identical `expert-release-summary/3.0` object, so a second copy
+     * of the trust and identity checks could drift from the first and let a value through
+     * on one path that the other refuses.
+     */
+    internal fun decodeExpertReleaseDetail(raw: String): HarnessOutcome<ExpertReleaseDetailResult> =
+        decodeResult(raw, "expert.release.inspect", SchemaIds.EXPERT_RELEASE_DETAIL) { element ->
+            STRICT.decodeFromJsonElement(ExpertReleaseDetailResult.serializer(), element)
+        }.also { outcome ->
+            if (outcome is HarnessOutcome.Decoded) {
+                validateRelease(outcome.value.release)?.let { return HarnessOutcome.Refused(it) }
+                // Dependencies are release identities and become navigable, so they get
+                // the same scrutiny as the release's own -- an unchecked one would reach
+                // a route argument by a different door.
+                for (dependency in outcome.value.install.dependencyReleaseIds) {
+                    if (!isWellFormedIdentity(dependency)) {
+                        return HarnessOutcome.Refused(HarnessRefusal.MalformedIdentity(dependency))
                     }
-                    if (release.mountState !in SchemaIds.MOUNT_STATES) {
-                        return HarnessOutcome.Refused(
-                            HarnessRefusal.MountState(release.mountState),
-                        )
-                    }
-                    if (!isWellFormedIdentity(release.packId) ||
-                        !isWellFormedIdentity(release.releaseId)
-                    ) {
-                        return HarnessOutcome.Refused(
-                            HarnessRefusal.MalformedIdentity(release.releaseId),
-                        )
+                }
+                val lifecycle = outcome.value.lifecycle
+                for (id in listOfNotNull(
+                    lifecycle.predecessorReleaseId, lifecycle.rollbackReleaseId,
+                )) {
+                    if (!isWellFormedIdentity(id)) {
+                        return HarnessOutcome.Refused(HarnessRefusal.MalformedIdentity(id))
                     }
                 }
             }
         }
+
+    /** The checks every release summary must pass, wherever it arrives from. */
+    private fun validateRelease(release: ExpertReleaseSummary): HarnessRefusal? = when {
+        release.trustState != SchemaIds.TRUST_STATE_TRUSTED ->
+            HarnessRefusal.TrustState(release.trustState)
+
+        release.mountState !in SchemaIds.MOUNT_STATES ->
+            HarnessRefusal.MountState(release.mountState)
+
+        !isWellFormedIdentity(release.packId) || !isWellFormedIdentity(release.releaseId) ->
+            HarnessRefusal.MalformedIdentity(release.releaseId)
+
+        else -> null
+    }
 
     private inline fun <T> decodeResult(
         raw: String,
