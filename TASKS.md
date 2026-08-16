@@ -10,57 +10,69 @@ Branch `feat/amber-seven-surface-shell`. Updated as work lands.
 
 ## Done and verified
 
-- [x] **Amber seven-surface shell** — 7 routes, capability-gated, no deep links
-- [x] **Setup contradiction fixed** — action derives from `provider`; "Change endpoint"
-      when configured, "Choose an endpoint" when not
-- [x] **Experts tab no longer inert** — `enabled` flag removed; tap navigates, destination
-      names `mount.list`; TalkBack label extracted to `expertsNavLabel()` so it is testable
-- [x] **Providers density + differentiation** — rows now carry `host · model`, because all
-      three seeded endpoints share `127.0.0.1:8090` and llama-swap routes by model name;
-      seeded notice compacted; `MODE_HARNESS` rows labelled `not a real backend`
-- [x] **Chat header truncation** — already fixed in `1d32f16`; screenshots predated it by
-      4 hours. Bounds assertion hardened with `useUnmergedTree`
-- [x] **`libomp.so` packaging** — bundled from the runner's NDK, digests re-pinned,
-      verified end to end
-- [x] **14 test defects fixed** — 7 could never pass, 3 could never fail, 4 surfaced by CI
+- [x] **Amber seven-surface shell** — 7 routes, no deep links, no exported activities
+- [x] **Setup, Experts tab, Providers, Chat header** — the four UX contradictions
+- [x] **`libomp.so` packaging** — bundled from the runner's NDK, digests re-pinned;
+      static `DT_NEEDED` verification now runs in CI across all four ABIs
+- [x] **14 test defects** — 7 could never pass, 3 could never fail, 4 surfaced by CI
 - [x] **Session state machine** — `Connected → Refreshing → Connected`, proactive refresh,
-      no persistence, four scopes enforced by the enum
-- [x] **`/3.0` negotiation + strict decoders** — capabilities and empty catalog, decoded
-      from server-emitted goldens
+      no persistence, four read-only scopes enforced by the enum
+- [x] **`/3.0` negotiation + strict decoders** — capabilities, catalog (empty AND
+      populated), release detail, token exchange and refresh, all from server goldens
+- [x] **Expert Library** — All/Active/Inactive, local search, trust as a text line, six
+      states, no mutating controls; identity abbreviation computed for uniqueness
+- [x] **Expert Detail** — every contracted field, progressive disclosure, full copyable
+      digests
+- [x] **Polish** — nav icons, factual subtitles, backtick-only inline code, ephemeral
+      server model names, active-row accent
+- [x] **Transport** — Ktor loopback client, session repository, real capability source,
+      pairing panel mounted in Setup and Experts
+- [x] **Live-contract corrections** — pairing frame, exact inspect body, release-id
+      routing, capability race
+- [x] **CI on this branch** — `ci.yml` green; `navigation-compose 2.9.8` validated on
+      x86_64 at last
 
-## Done, verification pending
+## Verification status
 
-- [~] **Stage 3C integration** (`f17dda1` + working tree) — 95 JVM tests, lint, preflight
-      all green locally. **Instrumentation not yet run** on API 28/36 for this change.
+| rung | state |
+|---|---|
+| JVM unit | **170 run, 0 failed** |
+| lint · preflight | clean (15 checks) |
+| `ci.yml` | green on `cf3dd4d` |
+| emulator API 28 + 36 | 100 tests green on `a9fbdee`; re-run in flight for `cf3dd4d` |
+| release APK | builds, 23.4 MB unsigned, all `DT_NEEDED` resolve |
+| **physical device** | **never, since the very first run** |
 
 ## Blocked — Knowledge Foundry side
 
-- [!] **Populated Expert Library** — no server-emitted **non-empty catalog** golden.
-      `ExpertReleaseSummary` is transcribed from its schema and has never met a real
-      response. `Ready` is written, typed, and unverified.
-- [!] **Expert Detail** — `expert-release-detail/3.0` has a closed schema but **no golden**,
-      so it stays out of `SchemaNegotiation.ACCEPTED` and the screen refuses.
-- [!] **Transport** — one-use Termux pairing credential and token exchange not yet
-      available. No HTTP client is written; the state machine is driven only by tests.
+- [!] **First live session** — waiting on the Termux→Localmind pairing-launch bridge.
+      Everything below it is verified against goldens, and no byte has yet crossed
+      loopback to `127.0.0.1:8091` from this app.
 - [!] **Grounded evidence** — `canonical-assistant-turn` planned-not-implemented.
 - [!] **Tool approval** — `governed-tool-proposal-decision-receipt` planned-not-implemented.
 
 ## Not started
 
-- [ ] **Transport layer** — Ktor client emitting `Knowledge-Foundry-Accept-Schema: /3.0`,
-      asserting `Cache-Control: no-store`, wired to the session machine. Waits on pairing.
-- [ ] **`ci.yml` on this branch** — has never run here; `navigation-compose 2.9.8` is still
-      unvalidated on x86_64
-- [ ] **Device verification** — needs a public hotspot; see `appfactory-updates-log.md` #11
+- [ ] **Evidence summary card above the answer** — designed in
+      `stitch-recommendations.md`, blocked on the assistant-turn contract
+- [ ] **Signing / tagging** — only after Experts works end to end on a real Harness
 
 ---
+
+## Open divergence, deliberate
+
+`docs/ui/route-manifest.json` still declares `experts/{packId}/{version}`; the app routes
+on `experts/{releaseId}` because the live adapter keys the lookup by release. The manifest
+conformance test names this single exception rather than being loosened, so it still
+catches any other drift — and it will fail again if either side moves. Expected to close
+when the manifest follows.
 
 ## Standing constraints
 
 - Localmind **consumes**; Studio creates, reviews, evaluates, signs.
 - Scopes are exactly `capabilities:read`, `expert:read`, `query:read`, `token:refresh`.
-  No `mounts:write`, activation, pack parsing, or install-record access.
 - **No fabricated fixtures.** An id enters `SchemaNegotiation.ACCEPTED` only alongside a
   decoder *and* a server-emitted golden, in the same change.
 - Never persist the pairing credential or the access token.
 - Version incompatibility is never presented as a pairing failure.
+- Foundry is `127.0.0.1:8091`; llama-swap is `8090`. Visibly separate services.
