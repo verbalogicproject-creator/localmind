@@ -20,6 +20,12 @@ composeBom = "2025.09.01"
 hilt = "2.59"
 hiltNavCompose = "1.2.0"
 room = "2.8.3"
+# androidx.sqlite bundled: Google-first-party bundled SQLite, so FTS5 is
+# available regardless of the device's system SQLite (which does not compile
+# FTS5 in on many builds -- API 36 emulator failed with "no such module: fts5"
+# on run 31922969687). Uses the new driver API (SQLiteConnection /
+# BundledSQLiteDriver), not SQLiteOpenHelper.
+sqliteBundled = "2.7.0"
 serialization = "1.8.0"
 # Ktor CLIENT. The app talks to llama-server over loopback; it is not a server itself.
 # CIO engine: coroutine-native, no thread-per-connection, which matters on a phone.
@@ -60,6 +66,10 @@ room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "
 room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
 room-testing = { group = "androidx.room", name = "room-testing", version.ref = "room" }
+
+# Bundled SQLite driver. Ships FTS5 inside the app so the device's system
+# SQLite (which may or may not compile FTS5 in) is not relied on.
+androidx-sqlite-bundled = { group = "androidx.sqlite", name = "sqlite-bundled", version.ref = "sqliteBundled" }
 
 # Explicit. ColdForge got this transitively via ktor-serialization and would have
 # broken the moment ktor was dropped.

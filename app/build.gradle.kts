@@ -366,6 +366,9 @@ dependencies {
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
     ksp(libs.room.compiler)
+    // Bundled SQLite driver -- FTS5 in-app rather than trusting the device's
+    // system SQLite. See MemoryStore.kt for the connection API.
+    implementation(libs.androidx.sqlite.bundled)
 
     implementation(libs.kotlinx.serialization.json)
 
