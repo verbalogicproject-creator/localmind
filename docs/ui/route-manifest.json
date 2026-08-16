@@ -7,7 +7,7 @@
         {"component":"ChatScreen","implementation":"observed-existing","route":"chat","screen":"localmind_chat"},
         {"component":"EvidenceDrawer","implementation":"required-additive-receipt-storage","route":"chat/message/{messageId}/evidence","screen":"localmind_evidence_drawer"},
         {"component":"ExpertLibraryScreen","implementation":"stage3c-contract-available-client-integration-in-progress","route":"experts","screen":"localmind_expert_library_final"},
-        {"component":"ExpertDetailScreen","implementation":"stage3c-contract-available-client-integration-in-progress","route":"experts/{packId}/{version}","screen":"localmind_expert_detail_final"},
+        {"component":"ExpertDetailScreen","implementation":"stage3c-contract-available-client-integration-live-pending","route":"experts/{releaseId}","screen":"localmind_expert_detail_final"},
         {"component":"ModelsProvidersScreen","implementation":"required-refactor-existing-provider-ui","route":"models-providers","screen":"localmind_models_providers_final"},
         {"component":"ToolApprovalSheet","implementation":"disabled-until-governed-tool-contract","route":"sessions/{sessionId}/tool-proposals/{proposalId}","screen":"localmind_tool_approval_final"}
       ]

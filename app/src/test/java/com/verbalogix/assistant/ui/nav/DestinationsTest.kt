@@ -49,42 +49,25 @@ class DestinationsTest {
     }
 
     /**
-     * Every destination matches the shared manifest, except one that is knowingly ahead
-     * of it.
+     * Every destination matches the shared route manifest, exactly.
      *
-     * THE EXCEPTION IS NAMED RATHER THAN THE CHECK RELAXED. `docs/ui/route-manifest.json`
-     * still declares `experts/{packId}/{version}`; the live adapter takes a release
-     * identity and the app now routes on one. That is a deliberate divergence made on the
-     * stronger authority -- an observed contract beats a document describing it -- and it
-     * is expected to close when the manifest follows.
+     * This carried a NAMED EXCEPTION for one commit. The app moved to
+     * `experts/{releaseId}` when the live adapter showed the lookup is keyed by release,
+     * while the manifest still declared `experts/{packId}/{version}` -- so the exception
+     * recorded a real, deliberate divergence rather than hiding it, and kept the check
+     * working for the other six routes in the meantime.
      *
-     * Listing the single exception keeps the test doing its job for the other six. A
-     * loosened assertion, or a deleted one, would have let any FUTURE drift through
-     * silently, which is the failure this test exists to prevent.
+     * Foundry has since made the release-keyed route canonical, so there is nothing left
+     * to except and the assertion is exact again. That is the outcome a named exception
+     * is for: it is a note that something is temporarily out of step, and it is supposed
+     * to be deleted rather than accumulate.
      */
     @Test
     fun `every declared destination appears in the shared route manifest`() {
-        val contract = androidRoutes().keys
-        val knownDivergence = setOf(
-            "experts/{packId}/{version}",   // manifest, superseded
-            "experts/{releaseId}",          // app, live-contract correct
-        )
         assertEquals(
-            "app destinations and the contract's routes must be the same set, " +
-                "apart from the recorded expert-detail divergence",
-            contract - knownDivergence,
-            Destinations.ALL.toSet() - knownDivergence,
-        )
-        // And the divergence is exactly the one described: the manifest still has the old
-        // form, the app has the new one. If either side changes, this stops being true
-        // and the exception must be revisited rather than widened.
-        assertTrue(
-            "the manifest is expected to still declare the two-argument form",
-            "experts/{packId}/{version}" in contract,
-        )
-        assertTrue(
-            "the app is expected to route on the release identity",
-            "experts/{releaseId}" in Destinations.ALL,
+            "app destinations and the contract's routes must be the same set",
+            androidRoutes().keys,
+            Destinations.ALL.toSet(),
         )
     }
 
