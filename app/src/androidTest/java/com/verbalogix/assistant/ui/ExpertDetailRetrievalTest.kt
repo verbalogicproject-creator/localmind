@@ -250,12 +250,18 @@ class ExpertDetailRetrievalTest {
         compose.onNodeWithTag(TAG_EXPERT_QUERY_FIELD).performTextInput("what is a pack")
         compose.onNodeWithTag(TAG_EXPERT_QUERY_SUBMIT).performScrollTo().performClick()
 
+        // ASSERTED IN READING ORDER, top to bottom, and that is not cosmetic. The first
+        // version checked the quotation and then scrolled BACK UP for the verdict, which
+        // passed on API 36 and failed on API 29: scrolling backwards through a long
+        // container landed the node against the viewport edge with nothing visible. Every
+        // scroll here now moves forward, the way a person reads the screen.
+
+        // The Harness's verdict, attributed to the Harness rather than stated as the app's.
+        compose.onNodeWithText("Knowledge Foundry assessed this evidence as", substring = true)
+            .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("line 1 of a quoted source file", substring = true)
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("docs/packs.md#L12 · internal", substring = true)
-            .performScrollTo().assertIsDisplayed()
-        // The Harness's verdict, attributed to the Harness rather than stated as the app's.
-        compose.onNodeWithText("Knowledge Foundry assessed this evidence as", substring = true)
             .performScrollTo().assertIsDisplayed()
     }
 
