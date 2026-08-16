@@ -12,6 +12,18 @@
 #
 # Format is plain `sha256sum` output, so `sha256sum -c` works on it directly once the
 # comments are stripped. Comment and blank lines are ignored by the Gradle parser.
+#
+# THE TAG DOES NOT IDENTIFY THE ARCHIVE, and that is worth knowing before reading a
+# mismatch as an attack. The release tag is `native-<llama.cpp pin>`, so it names the
+# UPSTREAM COMMIT and says nothing about how this repo packaged it. Re-running native.yml
+# without moving the pin therefore REPLACES the assets under the same tag -- which is
+# exactly what happened on 2026-08-16, when the packaging step began bundling the NDK's
+# libomp.so and both digests below changed while `b10435` stayed put.
+#
+# Note both changed. x86_64 gained nothing (no x86_64 library declares NEEDED libomp), yet
+# its digest moved anyway, because a zip embeds member mtimes and this build is not
+# reproducible. So a changed digest here means "rebuilt", NOT "contents differ" -- do not
+# read it as evidence either way without looking inside.
 
-53e9fb3ce9518d3742b7aaa0206958ed402a8e0ec466a66f45c31c59405d73c5  ./arm64-v8a.zip
-b907235d3d6eaa916f297b60e6f87f881ae9690576bea51b6fd4206f7468bc5d  ./x86_64.zip
+d8204ba1ebf804f8dee7b0e07ae1e2e5dc3c101cb04054a8e2d5c3d25f7106f8  ./arm64-v8a.zip
+6bcf98006cb608e64ac9eb32e064415330caf7ab593f2fce6bbb517885d0c7b4  ./x86_64.zip
