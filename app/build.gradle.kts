@@ -316,9 +316,16 @@ android {
     //
     // Preflight check 9 enforces that every declared @Database version has a
     // committed schema.
+    //
+    // srcDir (singular, ADDS) not srcDirs (plural, REPLACES): the earlier form
+    // silently dropped the default src/androidTest/assets/ from the source set,
+    // so any test fixture put there was excluded from the test APK. Discovered
+    // when MemoryStoreTest's memory-fixture.db was not found at runtime --
+    // FileNotFoundException at nativeOpenAsset, and no build-time warning
+    // because the sourceSet's own contract permits replacing defaults.
     sourceSets {
         getByName("androidTest") {
-            assets.srcDirs(files("$projectDir/schemas"))
+            assets.srcDir("$projectDir/schemas")
         }
         // The fetched engine is NOT wired here. AGP 9 refuses a Provider in the
         // SourceSet API -- see the androidComponents block below.
