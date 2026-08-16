@@ -12,10 +12,9 @@ import androidx.navigation.testing.TestNavHostController
 import androidx.test.platform.app.InstrumentationRegistry
 import com.verbalogix.assistant.BuildConfig
 import com.verbalogix.assistant.ui.nav.ARG_MESSAGE_ID
-import com.verbalogix.assistant.ui.nav.ARG_PACK_ID
 import com.verbalogix.assistant.ui.nav.ARG_PROPOSAL_ID
+import com.verbalogix.assistant.ui.nav.ARG_RELEASE_ID
 import com.verbalogix.assistant.ui.nav.ARG_SESSION_ID
-import com.verbalogix.assistant.ui.nav.ARG_VERSION
 import com.verbalogix.assistant.ui.nav.Destinations
 import com.verbalogix.assistant.ui.nav.GRAPH_ROOT
 import com.verbalogix.assistant.ui.nav.RouteArgs
@@ -59,8 +58,7 @@ class NavigationGraphTest {
                     composable(
                         Destinations.EXPERT_DETAIL,
                         arguments = listOf(
-                            navArgument(ARG_PACK_ID) { type = NavType.StringType },
-                            navArgument(ARG_VERSION) { type = NavType.StringType },
+                            navArgument(ARG_RELEASE_ID) { type = NavType.StringType },
                         ),
                     ) { Text("expert detail") }
                     composable(Destinations.MODELS_PROVIDERS) { Text("providers") }
@@ -87,7 +85,8 @@ class NavigationGraphTest {
             nav.navigate(Destinations.EXPERTS); reached += currentRoute()
             nav.navigate(Destinations.MODELS_PROVIDERS); reached += currentRoute()
             nav.navigate(Destinations.evidence(7L)!!); reached += currentRoute()
-            nav.navigate(Destinations.expertDetail("pack", "1.0.0")!!); reached += currentRoute()
+            nav.navigate(Destinations.expertDetail("kf:pack-release:" + "7b".repeat(32))!!)
+            reached += currentRoute()
             nav.navigate(Destinations.toolProposal("s1", "p1")!!); reached += currentRoute()
         }
         reached += Destinations.CHAT
@@ -109,16 +108,23 @@ class NavigationGraphTest {
         )
     }
 
+    /**
+     * The expert route carries a release identity, intact.
+     *
+     * A `kf:pack-release:<sha256>` is 80 characters containing COLONS, which a path
+     * segment permits but which the general identifier rule rejects -- so this asserts
+     * the whole value survives navigation rather than arriving truncated at the first
+     * colon or percent-encoded into something the lookup will not match.
+     */
     @Test
-    fun the_expert_route_carries_both_opaque_tokens() {
+    fun the_expert_route_carries_the_release_identity_intact() {
+        val releaseId = "kf:pack-release:" + "7b".repeat(32)
         graph()
         compose.runOnUiThread {
-            nav.navigate(Destinations.expertDetail("kf-core-env", "1.0.0")!!)
+            nav.navigate(Destinations.expertDetail(releaseId)!!)
         }
         assertEquals(Destinations.EXPERT_DETAIL, currentRoute())
-        val args = nav.currentBackStackEntry?.arguments
-        assertEquals("kf-core-env", args?.getString(ARG_PACK_ID))
-        assertEquals("1.0.0", args?.getString(ARG_VERSION))
+        assertEquals(releaseId, nav.currentBackStackEntry?.arguments?.getString(ARG_RELEASE_ID))
     }
 
     /**
@@ -131,7 +137,7 @@ class NavigationGraphTest {
     fun malformed_identifiers_never_produce_a_navigable_route() {
         graph()
         for (bad in listOf("../../etc/passwd", "a/b", "", "..", "a%2Fb", "-x")) {
-            assertNull(Destinations.expertDetail(bad, "1.0.0"))
+            assertNull(Destinations.expertDetail(bad))
             assertNull(Destinations.toolProposal("s", bad))
             assertNull(RouteArgs.identifierOrNull(bad))
         }

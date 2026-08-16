@@ -74,6 +74,16 @@ class ManualPairingCredentialSource @Inject constructor() : PairingCredentialSou
      * the user instead of becoming a request the Harness refuses. Shape is all this can
      * check -- whether it is live and unspent is the Harness's answer to give.
      *
+     * RETURNS WHEN THE RECEIVER TAKES THE VALUE, NOT WHEN THE EXCHANGE COMPLETES. That is
+     * what a rendezvous send means, and it is worth stating because a caller that reads it
+     * as "pairing finished" will act too early. One did: the view model used to fetch
+     * capabilities on the next line, which ran with no token held and reported
+     * Capabilities.NONE over a session that was about to succeed.
+     *
+     * The fix was not to make this wait. Anything that depends on a live session belongs
+     * where the session is adopted -- see [HarnessSessionRepository] -- because that is
+     * the only place the ordering cannot be got wrong.
+     *
      * @return false when the line is not a pairing credential at all.
      */
     suspend fun offer(line: String): Boolean {

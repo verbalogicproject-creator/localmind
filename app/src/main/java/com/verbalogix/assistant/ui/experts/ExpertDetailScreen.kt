@@ -45,12 +45,19 @@ const val TAG_TECHNICAL_DISCLOSURE = "expert-technical-disclosure"
 /**
  * One release, in full.
  *
- * KEYED BY IDENTITY, not by display name. The route is `experts/{packId}/{version}` per
- * the Foundry's own route manifest, and `packId` is `kf:pack:<sha256>` -- an immutable
- * identity, not a label. That distinction is the point: a name is something a server can
- * change, and routing on one would let a rename silently repoint this screen at a
- * different artifact. The release's own `kf:pack-release:` identity is shown and copyable
- * below rather than used as the key, because the manifest is the authority on routes.
+ * KEYED BY RELEASE IDENTITY. The route is `experts/{releaseId}` and the lookup sends
+ * exactly `{"release_id": "kf:pack-release:…"}`.
+ *
+ * It was `experts/{packId}/{version}` -- the shape the route manifest still declares --
+ * until the live adapter showed the lookup is by RELEASE. The distinction is substantive
+ * rather than cosmetic: a pack id names a pack across all of its releases and a version
+ * is a label attached to one, so identifying a release by the pair resolves two softer
+ * facts to reach an immutable thing that already has its own name. A digest cannot drift,
+ * be reused, or be ambiguous. Pack id and version remain on screen as things to SHOW.
+ *
+ * DIVERGES FROM `docs/ui/route-manifest.json`, deliberately and visibly: that file still
+ * declares the two-argument form. The live contract is the stronger authority here, and
+ * the manifest is expected to follow.
  *
  * EVERY FIELD IS CONTRACTED. Nothing is computed, inferred or defaulted: no evaluation
  * score, no source-standing figure, no "last updated", no pack size. Those appear in the
@@ -96,7 +103,7 @@ fun ExpertDetailScreen(
 
                 is ExpertDetailUiState.NotFound -> EmptyNotice(
                     title = "Not found",
-                    body = "No mounted release matches ${state.packId} at version ${state.version}.",
+                    body = "No mounted release matches ${state.releaseId}.",
                 )
 
                 // Separate from Refused: only this one is fixed by a release.

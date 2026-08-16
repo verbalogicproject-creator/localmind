@@ -133,7 +133,7 @@ sealed interface ExpertLibraryUiState {
 sealed interface ExpertDetailUiState {
     data object Loading : ExpertDetailUiState
     data class Unavailable(val capability: CapabilityState.Unavailable) : ExpertDetailUiState
-    data class NotFound(val packId: String, val version: String) : ExpertDetailUiState
+    data class NotFound(val releaseId: String) : ExpertDetailUiState
     data class Incompatible(val detail: String) : ExpertDetailUiState
     data class Refused(val detail: String) : ExpertDetailUiState
     data class Ready(val expert: ExpertDetail) : ExpertDetailUiState

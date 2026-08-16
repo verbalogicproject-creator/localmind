@@ -48,13 +48,43 @@ class DestinationsTest {
         )
     }
 
+    /**
+     * Every destination matches the shared manifest, except one that is knowingly ahead
+     * of it.
+     *
+     * THE EXCEPTION IS NAMED RATHER THAN THE CHECK RELAXED. `docs/ui/route-manifest.json`
+     * still declares `experts/{packId}/{version}`; the live adapter takes a release
+     * identity and the app now routes on one. That is a deliberate divergence made on the
+     * stronger authority -- an observed contract beats a document describing it -- and it
+     * is expected to close when the manifest follows.
+     *
+     * Listing the single exception keeps the test doing its job for the other six. A
+     * loosened assertion, or a deleted one, would have let any FUTURE drift through
+     * silently, which is the failure this test exists to prevent.
+     */
     @Test
     fun `every declared destination appears in the shared route manifest`() {
         val contract = androidRoutes().keys
+        val knownDivergence = setOf(
+            "experts/{packId}/{version}",   // manifest, superseded
+            "experts/{releaseId}",          // app, live-contract correct
+        )
         assertEquals(
-            "app destinations and the contract's routes must be the same set",
-            contract,
-            Destinations.ALL.toSet(),
+            "app destinations and the contract's routes must be the same set, " +
+                "apart from the recorded expert-detail divergence",
+            contract - knownDivergence,
+            Destinations.ALL.toSet() - knownDivergence,
+        )
+        // And the divergence is exactly the one described: the manifest still has the old
+        // form, the app has the new one. If either side changes, this stops being true
+        // and the exception must be revisited rather than widened.
+        assertTrue(
+            "the manifest is expected to still declare the two-argument form",
+            "experts/{packId}/{version}" in contract,
+        )
+        assertTrue(
+            "the app is expected to route on the release identity",
+            "experts/{releaseId}" in Destinations.ALL,
         )
     }
 
@@ -90,11 +120,26 @@ class DestinationsTest {
     }
 
     @Test
-    fun `expert detail route is built from valid opaque tokens`() {
-        assertEquals(
-            "experts/kf-core-env/1.0.0",
-            Destinations.expertDetail("kf-core-env", "1.0.0"),
-        )
+    fun `expert detail route is built from an immutable release identity`() {
+        // Was `experts/{packId}/{version}` until the live adapter showed the lookup is by
+        // RELEASE. A pack id names a pack across all of its releases and a version is a
+        // label attached to one, so the pair resolved two softer facts to reach an
+        // immutable thing that already had its own name.
+        val releaseId = "kf:pack-release:" + "7b".repeat(32)
+        assertEquals("experts/$releaseId", Destinations.expertDetail(releaseId))
+    }
+
+    @Test
+    fun `a release identity must match the exact kf grammar`() {
+        // STRICTER than the general identifier rule, not looser: exactly `kf:`, a
+        // lowercase kind, and sixty-four lowercase hex characters. A release id is 80
+        // characters with colons and fails the generic rule on both counts, so the fix
+        // was an exact-shape allow-list rather than a relaxed one.
+        assertNull(RouteArgs.releaseIdOrNull("kf-core-env"))
+        assertNull(RouteArgs.releaseIdOrNull("kf:pack-release:" + "a".repeat(63)))
+        assertNull(RouteArgs.releaseIdOrNull("kf:pack-release:" + "A".repeat(64)))
+        assertNull(RouteArgs.releaseIdOrNull("../../etc/passwd"))
+        assertEquals("kf:pack-release:" + "7b".repeat(32), RouteArgs.releaseIdOrNull("kf:pack-release:" + "7b".repeat(32)))
     }
 
     @Test
@@ -130,7 +175,7 @@ class DestinationsTest {
             assertNull("must reject identifier: <$candidate>", RouteArgs.identifierOrNull(candidate))
             assertNull(
                 "must refuse to build an expert route from: <$candidate>",
-                Destinations.expertDetail(candidate, "1.0.0"),
+                Destinations.expertDetail(candidate),
             )
             assertNull(
                 "must refuse to build a proposal route from: <$candidate>",
@@ -180,8 +225,7 @@ class DestinationsTest {
         // silently receives null. Asserting the constant is IN the pattern is what
         // makes that impossible to introduce.
         assertTrue(Destinations.EVIDENCE.contains("{$ARG_MESSAGE_ID}"))
-        assertTrue(Destinations.EXPERT_DETAIL.contains("{$ARG_PACK_ID}"))
-        assertTrue(Destinations.EXPERT_DETAIL.contains("{$ARG_VERSION}"))
+        assertTrue(Destinations.EXPERT_DETAIL.contains("{$ARG_RELEASE_ID}"))
         assertTrue(Destinations.TOOL_PROPOSAL.contains("{$ARG_SESSION_ID}"))
         assertTrue(Destinations.TOOL_PROPOSAL.contains("{$ARG_PROPOSAL_ID}"))
     }
@@ -190,7 +234,7 @@ class DestinationsTest {
     fun `built routes contain no unsubstituted placeholders`() {
         val built = listOfNotNull(
             Destinations.evidence(1L),
-            Destinations.expertDetail("pack", "1.0.0"),
+            Destinations.expertDetail("kf:pack-release:" + "7b".repeat(32)),
             Destinations.toolProposal("s", "p"),
         )
         assertEquals(3, built.size)

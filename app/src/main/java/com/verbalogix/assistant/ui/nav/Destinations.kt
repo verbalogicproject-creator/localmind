@@ -6,8 +6,7 @@ package com.verbalogix.assistant.ui.nav
 // declares `messageId`, the lookup asks for `message_id`, and the screen silently
 // receives null -- no crash, no warning, just a permanently empty drawer.
 const val ARG_MESSAGE_ID = "messageId"
-const val ARG_PACK_ID = "packId"
-const val ARG_VERSION = "version"
+const val ARG_RELEASE_ID = "releaseId"
 const val ARG_SESSION_ID = "sessionId"
 const val ARG_PROPOSAL_ID = "proposalId"
 
@@ -42,7 +41,7 @@ object Destinations {
     // directly -- the builders below validate first and are the only way in.
 
     const val EVIDENCE = "chat/message/{$ARG_MESSAGE_ID}/evidence"
-    const val EXPERT_DETAIL = "experts/{$ARG_PACK_ID}/{$ARG_VERSION}"
+    const val EXPERT_DETAIL = "experts/{$ARG_RELEASE_ID}"
     const val TOOL_PROPOSAL = "sessions/{$ARG_SESSION_ID}/tool-proposals/{$ARG_PROPOSAL_ID}"
 
     /**
@@ -81,10 +80,9 @@ object Destinations {
      * the string is SAFE TO PLACE IN A PATH. Reading semver meaning into it here would
      * be this app quietly taking a verb it does not own.
      */
-    fun expertDetail(packId: String, version: String): String? {
-        val pack = RouteArgs.identifierOrNull(packId) ?: return null
-        val ver = RouteArgs.identifierOrNull(version) ?: return null
-        return "experts/$pack/$ver"
+    fun expertDetail(releaseId: String): String? {
+        val id = RouteArgs.releaseIdOrNull(releaseId) ?: return null
+        return "experts/$id"
     }
 
     /**
@@ -143,6 +141,26 @@ object RouteArgs {
      * a URL.
      */
     private val IDENTIFIER = Regex("^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+
+    /**
+     * A Knowledge Foundry identity, as a route argument.
+     *
+     * SEPARATE FROM, AND STRICTER THAN, [IDENTIFIER]. A release id is
+     * `kf:pack-release:<64 hex>` -- 80 characters containing colons, so it fails the
+     * general identifier rule on both length and alphabet. The tempting fix is to relax
+     * that rule; this does the opposite and adds an EXACT-SHAPE allow-list, which admits
+     * precisely one grammar and nothing else.
+     *
+     * That is a stronger boundary than the one it sits beside: `identifierOrNull` accepts
+     * any bounded alphanumeric token, while this accepts only a literal `kf:` prefix, a
+     * lowercase kind, and exactly sixty-four lowercase hex characters. No traversal
+     * sequence, no flag-shaped value and no arbitrary string can satisfy it.
+     */
+    private val KF_IDENTITY = Regex("^kf:[a-z0-9-]{1,32}:[0-9a-f]{64}$")
+
+    /** Validates a `kf:<kind>:<sha256>` identity arriving as, or destined for, a route. */
+    fun releaseIdOrNull(raw: String?): String? =
+        raw?.takeIf { KF_IDENTITY.matches(it) }
 
     fun identifierOrNull(raw: String?): String? {
         val text = raw ?: return null

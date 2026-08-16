@@ -75,6 +75,22 @@ object HarnessRequest {
     }
 
     /**
+     * The body for `expert.release.inspect`.
+     *
+     * EXACTLY ONE FIELD. The first version sent an `operation-request/3.0` envelope
+     * carrying `pack_id` and `version`, inferred from the route rather than read from a
+     * schema; the live adapter takes the raw route form and keys on the RELEASE. Kept
+     * here rather than inline in the client so the exact bytes can be asserted without a
+     * socket -- which is the only way a mistake like the first one gets caught early.
+     */
+    fun inspectReleaseBody(releaseId: String): String {
+        require(HarnessDecoder.isWellFormedIdentity(releaseId)) {
+            "release_id must be a kf:<kind>:<sha256> identity"
+        }
+        return """{"release_id":"$releaseId"}"""
+    }
+
+    /**
      * Headers for a token exchange or refresh.
      *
      * @param bearer the pairing credential on exchange, the current access token on

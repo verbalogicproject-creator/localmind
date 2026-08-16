@@ -25,17 +25,43 @@ object HarnessPairing {
     private val TOKEN = Regex("""^kft2\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$""")
 
     /**
+     * The frame the Harness actually prints.
+     *
+     * Confirmed against the live server rather than guessed: the pairing line is emitted
+     * as a labelled frame, and the label is part of the contract rather than decoration.
+     */
+    const val FRAME_PREFIX = "KNOWLEDGE-FOUNDRY-LOCALMIND-PAIRING/1"
+
+    /**
      * A pasted line is not necessarily a token.
      *
-     * Operators paste from a terminal, which brings whitespace, a trailing newline, and
-     * sometimes a shell prompt or a surrounding quote. Trimming those is helping; anything
-     * beyond them is guessing, so a line that is not exactly one token after trimming is
-     * refused rather than salvaged.
+     * TWO EXACT FORMS ARE ACCEPTED and nothing else: a bare `kft2.…`, or the complete
+     * frame `KNOWLEDGE-FOUNDRY-LOCALMIND-PAIRING/1 kft2.…`. The frame is what the Harness
+     * prints; the bare token is what a user gets by selecting only part of that line,
+     * which is common enough on a phone that refusing it would be hostile.
+     *
+     * THE PREFIX IS VALIDATED BEFORE ANYTHING IS EXTRACTED. The tempting shortcut is to
+     * scan for something `kft2.`-shaped anywhere in the input and take it -- which would
+     * accept a token embedded in a log line, a shell prompt, or an error message quoting
+     * one. Anything that is not exactly one of the two forms is refused rather than mined
+     * for a token, because a credential found inside arbitrary text was not deliberately
+     * offered.
+     *
+     * Operators paste from a terminal, so surrounding whitespace and one pair of quotes
+     * are trimmed. That is helping; anything beyond it is guessing.
      */
     fun parsePairingLine(line: String?): String? {
         if (line == null) return null
-        val trimmed = line.trim().trim('"', '\'')
-        return if (TOKEN.matches(trimmed)) trimmed else null
+        val trimmed = line.trim().trim('"', '\'').trim()
+        if (TOKEN.matches(trimmed)) return trimmed
+
+        if (!trimmed.startsWith(FRAME_PREFIX)) return null
+        // Exactly two fields: the label and the token. Splitting on any run of whitespace
+        // tolerates the tab or double space a terminal may introduce, while a third field
+        // means this is a sentence containing the frame rather than the frame itself.
+        val parts = trimmed.split(Regex("""\s+"""))
+        if (parts.size != 2 || parts[0] != FRAME_PREFIX) return null
+        return parts[1].takeIf { TOKEN.matches(it) }
     }
 
     fun isWellFormedToken(token: String): Boolean = TOKEN.matches(token)

@@ -175,7 +175,7 @@ class LayoutAccessibilityTest {
         at(320, 2.0f) {
             ExpertLibraryScreen(
                 state = ExpertLibraryUiState.Unavailable(unavailable),
-                onOpenExpert = { _, _ -> },
+                onOpenExpert = {},
             )
         }
         compose.onNodeWithText("Unavailable").assertIsDisplayed()
@@ -404,7 +404,7 @@ class LayoutAccessibilityTest {
         at(320, 1.0f) {
             ExpertLibraryScreen(
                 state = ExpertLibraryUiState.Unavailable(unavailable),
-                onOpenExpert = { _, _ -> },
+                onOpenExpert = {},
             )
         }
         compose.onNodeWithText("Unavailable").assertIsDisplayed()

@@ -42,7 +42,7 @@ class CapabilityGateTest {
             LocalmindTheme(darkTheme = true) {
                 ExpertLibraryScreen(
                     state = ExpertLibraryUiState.Unavailable(expertGate),
-                    onOpenExpert = { _, _ -> },
+                    onOpenExpert = {},
                 )
             }
         }
@@ -63,7 +63,7 @@ class CapabilityGateTest {
             LocalmindTheme(darkTheme = true) {
                 ExpertLibraryScreen(
                     state = ExpertLibraryUiState.Unavailable(expertGate),
-                    onOpenExpert = { _, _ -> },
+                    onOpenExpert = {},
                 )
             }
         }

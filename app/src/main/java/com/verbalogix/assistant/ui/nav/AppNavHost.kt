@@ -294,20 +294,18 @@ fun AppNavHost(
                     PairingPanel(state = session, onPair = pairing::pair)
                     ExpertLibraryScreen(
                         state = state,
-                        onOpenExpert = { packId, version ->
-                            Destinations.expertDetail(packId, version)
-                                ?.let(navController::navigate)
+                        onOpenExpert = { releaseId ->
+                            Destinations.expertDetail(releaseId)?.let(navController::navigate)
                         },
                     )
                 }
             }
 
-            // ── experts/{packId}/{version} ──────────────────────────────────────
+            // ── experts/{releaseId} ─────────────────────────────────────────────
             composable(
                 route = Destinations.EXPERT_DETAIL,
                 arguments = listOf(
-                    navArgument(ARG_PACK_ID) { type = NavType.StringType },
-                    navArgument(ARG_VERSION) { type = NavType.StringType },
+                    navArgument(ARG_RELEASE_ID) { type = NavType.StringType },
                 ),
             ) {
                 val vm: ExpertDetailViewModel = hiltViewModel()

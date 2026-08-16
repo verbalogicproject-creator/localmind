@@ -65,7 +65,7 @@ const val TAG_EXPERT_SEARCH = "expert-search"
 @Composable
 fun ExpertLibraryScreen(
     state: ExpertLibraryUiState,
-    onOpenExpert: (packId: String, version: String) -> Unit,
+    onOpenExpert: (releaseId: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // Survives rotation and process death: a user who typed a digest fragment to find one
@@ -153,7 +153,7 @@ private fun ReadyLibrary(
     onQueryChange: (String) -> Unit,
     filter: ExpertFilter,
     onFilterChange: (ExpertFilter) -> Unit,
-    onOpenExpert: (String, String) -> Unit,
+    onOpenExpert: (String) -> Unit,
 ) {
     val visible = remember(experts, query, filter) {
         experts.search(query).filter { filter.matches(it) }
@@ -199,7 +199,7 @@ private fun ReadyLibrary(
             ExpertCard(
                 expert = expert,
                 abbreviatedId = short[expert.releaseId] ?: expert.releaseId,
-                onOpen = { onOpenExpert(expert.packId, expert.version) },
+                onOpen = { onOpenExpert(expert.releaseId) },
             )
         }
     }
@@ -316,7 +316,7 @@ private fun ExpertLibraryUnavailablePreview() {
             state = ExpertLibraryUiState.Unavailable(
                 Capabilities.NONE.expertLibrary as com.verbalogix.assistant.data.capability.CapabilityState.Unavailable,
             ),
-            onOpenExpert = { _, _ -> },
+            onOpenExpert = {},
         )
     }
 }

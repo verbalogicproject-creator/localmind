@@ -96,22 +96,33 @@ class HarnessClient @Inject constructor() {
         operationGet(HarnessRequest.PATH_EXPERT_CATALOG, accessToken, bind, HarnessDecoder::decodeExpertCatalog)
 
     /**
-     * Inspect one release.
+     * Inspect one release, keyed by its immutable release identity.
      *
-     * A POST with an `operation-request/3.0` envelope, because the adapter requires the
-     * request to name its own operation and expected response schema -- a route match
-     * alone is not enough.
+     * THE BODY IS EXACTLY `{"release_id": "kf:pack-release:…"}`.
+     *
+     * The first version of this sent an `operation-request/3.0` envelope carrying
+     * `pack_id` and `version`, inferred from the route rather than read from a schema.
+     * Both halves were wrong against the live adapter: the raw route form is what it
+     * accepts, and the lookup key is the RELEASE, not a pack plus a version string.
+     *
+     * That distinction is the substantive one. `pack_id` names a pack across all of its
+     * releases and `version` is a label attached to one; identifying a release by the
+     * pair means resolving two mutable-ish facts to reach an immutable thing that already
+     * has its own name. `release_id` is a digest -- it cannot drift, be reused, or be
+     * ambiguous -- so it is the only honest lookup authority. Pack id and version stay as
+     * things to SHOW.
      */
     internal suspend fun inspectRelease(
         accessToken: String,
-        packId: String,
-        version: String,
+        releaseId: String,
         bind: String = DEFAULT_BIND,
     ): HarnessOutcome<ExpertReleaseDetailResult> = runCatching {
-        val body = """{"arguments":{"pack_id":"$packId","version":"$version"},""" +
-            """"mode":"http","operation_id":"expert.release.inspect",""" +
-            """"response_schema":"knowledge-foundry-operation-response/3.0",""" +
-            """"schema":"knowledge-foundry-operation-request/3.0"}"""
+        // Validated before it is interpolated. The identity reaches a request body, and
+        // an unchecked one is precisely what RouteArgs and this regex exist to stop.
+        if (!HarnessDecoder.isWellFormedIdentity(releaseId)) {
+            return HarnessOutcome.Refused(HarnessRefusal.MalformedIdentity(releaseId))
+        }
+        val body = HarnessRequest.inspectReleaseBody(releaseId)
         val response = http.post("http://$bind${HarnessRequest.PATH_EXPERT_RELEASE_INSPECT}") {
             HarnessRequest.operationHeaders(bind, accessToken, post = true)
                 .forEach { (k, v) -> header(k, v) }

@@ -45,13 +45,12 @@ class PairingViewModel @Inject constructor(
      * credentials by the same route with nothing downstream changing.
      */
     fun pair(line: String) {
-        viewModelScope.launch {
-            if (credentials.offer(line)) {
-                // Capabilities are read after the session lands, not before: an unpaired
-                // client asking what it may do gets a refusal, which would be reported as
-                // a failure rather than as the ordinary state it is.
-                repository.refreshCapabilities()
-            }
-        }
+        // OFFER AND NOTHING ELSE. An earlier version also called `refreshCapabilities()`
+        // here, which raced: `offer` returns when the rendezvous receiver TAKES the
+        // value, not when the exchange completes, so the read usually ran with no token
+        // held and reported Capabilities.NONE over a session that was about to succeed.
+        // Reading capabilities is now part of adopting a token, inside the repository,
+        // where there is no moment at which it can be asked too early.
+        viewModelScope.launch { credentials.offer(line) }
     }
 }

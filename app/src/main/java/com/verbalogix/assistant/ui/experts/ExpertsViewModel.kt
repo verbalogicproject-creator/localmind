@@ -8,8 +8,7 @@ import com.verbalogix.assistant.data.capability.CapabilitySource
 import com.verbalogix.assistant.data.capability.CapabilityState
 import com.verbalogix.assistant.data.harness.HarnessClient
 import com.verbalogix.assistant.data.harness.HarnessSessionRepository
-import com.verbalogix.assistant.ui.nav.ARG_PACK_ID
-import com.verbalogix.assistant.ui.nav.ARG_VERSION
+import com.verbalogix.assistant.ui.nav.ARG_RELEASE_ID
 import com.verbalogix.assistant.ui.nav.RouteArgs
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -109,30 +108,35 @@ class ExpertDetailViewModel @Inject constructor(
     private val client: HarnessClient,
 ) : ViewModel() {
 
-    private val packId: String? =
-        RouteArgs.identifierOrNull(savedStateHandle.get<String>(ARG_PACK_ID))
-    private val version: String? =
-        RouteArgs.identifierOrNull(savedStateHandle.get<String>(ARG_VERSION))
+    /**
+     * The lookup authority, and the only one.
+     *
+     * `release_id` is a digest: it cannot drift, be reused, or be ambiguous. Pack id and
+     * version are display metadata carried by the RESPONSE, not inputs to finding it --
+     * identifying a release by a pack plus a version string means resolving two softer
+     * facts to reach an immutable thing that already has its own name.
+     */
+    private val releaseId: String? =
+        RouteArgs.releaseIdOrNull(savedStateHandle.get<String>(ARG_RELEASE_ID))
 
     private val fetched = MutableStateFlow<ExpertDetailUiState?>(null)
 
     init {
         viewModelScope.launch {
             capabilities.capabilities().collect { caps ->
-                val id = packId
-                val ver = version
+                val id = releaseId
                 fetched.value = when {
                     caps.expertLibrary !is CapabilityState.Available -> null
 
                     // A MALFORMED ROUTE ARGUMENT NEVER BECOMES A REQUEST. The identity is
                     // interpolated into a request body, so an unvalidated one reaching the
                     // wire is exactly the failure RouteArgs exists to prevent.
-                    id == null || ver == null -> ExpertDetailUiState.NotFound(
-                        packId.orEmpty(), version.orEmpty(),
+                    id == null -> ExpertDetailUiState.NotFound(
+                        savedStateHandle.get<String>(ARG_RELEASE_ID).orEmpty(),
                     )
 
                     else -> session.bearer()
-                        ?.let { client.inspectRelease(it, id, ver).toDetailState() }
+                        ?.let { client.inspectRelease(it, id).toDetailState() }
                 }
             }
         }
@@ -151,7 +155,7 @@ class ExpertDetailViewModel @Inject constructor(
         )
 
     /** The malformed-argument case, distinguished from "valid but unknown". */
-    val argumentsValid: Boolean = packId != null && version != null
+    val argumentsValid: Boolean = releaseId != null
 
     val unavailableFallback: CapabilityState.Unavailable =
         Capabilities.NONE.expertLibrary as CapabilityState.Unavailable

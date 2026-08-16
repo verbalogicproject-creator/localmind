@@ -28,7 +28,7 @@ private fun ExpertLibraryPopulatedPreview() {
     LocalmindTheme(darkTheme = true) {
         ExpertLibraryScreen(
             state = ExpertLibraryUiState.Ready(fakeExperts),
-            onOpenExpert = { _, _ -> },
+            onOpenExpert = {},
         )
     }
 }
@@ -39,7 +39,7 @@ private fun ExpertLibraryEmptyPreview() {
     LocalmindTheme(darkTheme = true) {
         ExpertLibraryScreen(
             state = ExpertLibraryUiState.Empty,
-            onOpenExpert = { _, _ -> },
+            onOpenExpert = {},
         )
     }
 }
