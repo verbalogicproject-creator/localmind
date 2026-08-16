@@ -3,6 +3,7 @@ package com.verbalogix.assistant.debug
 import com.verbalogix.assistant.data.capability.Capabilities
 import com.verbalogix.assistant.data.capability.CapabilitySource
 import com.verbalogix.assistant.data.capability.CapabilityState
+import com.verbalogix.assistant.ui.experts.ExpertDetail
 import com.verbalogix.assistant.ui.experts.ExpertLifecycle
 import com.verbalogix.assistant.ui.experts.ExpertSummary
 import com.verbalogix.assistant.ui.tools.ToolDecision
@@ -56,17 +57,53 @@ class FakeUnavailableCapabilitySource : CapabilitySource {
  */
 val fakeExperts: List<ExpertSummary> = listOf(
     ExpertSummary(
-        packId = "EXAMPLE-pack-a",
+        packId = "kf:pack:" + "e0".repeat(32),
+        releaseId = "kf:pack-release:" + "e1".repeat(32),
+        name = "EXAMPLE expert (preview fixture)",
+        namespace = "example.invalid",
+        slug = "example-expert",
         version = "EXAMPLE-version",
-        displayName = "EXAMPLE expert (preview fixture)",
         lifecycle = ExpertLifecycle.MOUNTED,
+        trustState = "trusted",
     ),
     ExpertSummary(
-        packId = "EXAMPLE-pack-b",
+        packId = "kf:pack:" + "e2".repeat(32),
+        releaseId = "kf:pack-release:" + "e3".repeat(32),
+        name = "EXAMPLE inactive expert (preview fixture)",
+        namespace = "example.invalid",
+        slug = "example-inactive",
         version = "EXAMPLE-version",
-        displayName = "EXAMPLE revoked expert (preview fixture)",
-        lifecycle = ExpertLifecycle.TRUST_REVOKED,
+        lifecycle = ExpertLifecycle.INSTALLED_INACTIVE,
+        trustState = "trusted",
     ),
+)
+
+/**
+ * One expert detail, for the preview only.
+ *
+ * `example.invalid` is a reserved namespace that can never resolve, and every digest is a
+ * repeated byte pattern no real SHA-256 would produce. Both are deliberate: a fixture that
+ * could be mistaken for a real pack is the failure this file exists to avoid.
+ */
+val fakeExpertDetail: ExpertDetail = ExpertDetail(
+    summary = fakeExperts.first(),
+    description = "EXAMPLE description (preview fixture).",
+    profile = "EXAMPLE-profile",
+    riskClass = "EXAMPLE-risk",
+    publicationChannel = "EXAMPLE-channel",
+    capabilities = listOf("EXAMPLE-capability-a", "EXAMPLE-capability-b"),
+    allowedSensitivities = listOf("internal"),
+    contentSha256 = "a0".repeat(32),
+    archiveSha256 = "a1".repeat(32),
+    installRecordSha256 = "a2".repeat(32),
+    installId = "kf:install:" + "a3".repeat(32),
+    signerKeyId = "ed25519:" + "a4".repeat(32),
+    compatibility = "EXAMPLE-compatibility",
+    dependencyReleaseIds = emptyList(),
+    verificationSha256 = "a5".repeat(32),
+    predecessorReleaseId = null,
+    rollbackReleaseId = null,
+    supersededContentSha256 = null,
 )
 
 /**

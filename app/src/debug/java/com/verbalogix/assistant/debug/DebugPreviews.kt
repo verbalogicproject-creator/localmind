@@ -49,7 +49,7 @@ private fun ExpertLibraryEmptyPreview() {
 private fun ExpertDetailPopulatedPreview() {
     LocalmindTheme(darkTheme = true) {
         ExpertDetailScreen(
-            state = ExpertDetailUiState.Ready(fakeExperts.first()),
+            state = ExpertDetailUiState.Ready(fakeExpertDetail),
             onBack = {},
         )
     }

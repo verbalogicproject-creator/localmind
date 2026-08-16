@@ -33,20 +33,24 @@ class ExpertCatalogMappingTest {
     }
 
     @Test
-    fun a_refusal_becomes_unavailable_and_keeps_its_own_reason() {
+    fun an_unreadable_version_keeps_its_own_reason() {
         // Not a generic message: the refusal explains itself, and replacing that text
         // with "something went wrong" discards the only thing that made it actionable.
+        //
+        // This asserted `Unavailable` until the library gained Incompatible and Refused.
+        // An unsupported version is now the FORMER, because it is the one case a release
+        // fixes -- and `Unavailable` means something different: the Harness never offered
+        // the operation at all.
         val outcome: HarnessOutcome<ExpertCatalogResult> = HarnessOutcome.Refused(
             HarnessRefusal.Schema(SchemaVerdict.Unsupported("knowledge-foundry-expert-catalog/9.9")),
         )
         val state = outcome.toLibraryState()
-        assertTrue(state is ExpertLibraryUiState.Unavailable)
-        val capability = (state as ExpertLibraryUiState.Unavailable).capability
+        assertTrue("expected Incompatible, got $state", state is ExpertLibraryUiState.Incompatible)
         assertTrue(
-            "must carry the refusal's own words: ${capability.reason}",
-            capability.reason.contains("knowledge-foundry-expert-catalog/9.9"),
+            "must carry the refusal's own words",
+            (state as ExpertLibraryUiState.Incompatible).detail
+                .contains("knowledge-foundry-expert-catalog/9.9"),
         )
-        assertEquals("expert.catalog.list", capability.requiredCapability)
     }
 
     @Test
@@ -54,9 +58,9 @@ class ExpertCatalogMappingTest {
         val outcome: HarnessOutcome<ExpertCatalogResult> =
             HarnessOutcome.Unsuccessful("refused", "scope-denied")
         val state = outcome.toLibraryState()
-        assertTrue(state is ExpertLibraryUiState.Unavailable)
-        val reason = (state as ExpertLibraryUiState.Unavailable).capability.reason
-        assertTrue("must name the disposition: $reason", reason.contains("refused"))
-        assertTrue("must name the error code: $reason", reason.contains("scope-denied"))
+        assertTrue("expected Refused, got $state", state is ExpertLibraryUiState.Refused)
+        val detail = (state as ExpertLibraryUiState.Refused).detail
+        assertTrue("must name the disposition: $detail", detail.contains("refused"))
+        assertTrue("must name the error code: $detail", detail.contains("scope-denied"))
     }
 }
