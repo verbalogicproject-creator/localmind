@@ -36,6 +36,18 @@ import com.verbalogix.assistant.ui.theme.AmberTokens
 
 const val TAG_RETRIEVAL_EVIDENCE = "retrieval-evidence"
 const val TAG_RETRIEVAL_RECEIPT = "retrieval-receipt"
+const val TAG_RETRIEVAL_OMISSIONS = "retrieval-omissions"
+
+/**
+ * How much of a quotation is shown before it is folded.
+ *
+ * Twelve lines is roughly a phone screen of monospace at the default text size — enough to
+ * see what a passage is and decide whether to open it, and short enough that eight items
+ * remain scrollable as a list rather than as a document. The character ceiling catches the
+ * other shape of long: one enormous line, which no line count would fold.
+ */
+private const val PREVIEW_LINES = 12
+private const val PREVIEW_CHARS = 800
 
 /**
  * What an expert knows about a question — and nothing about an answer.
@@ -151,15 +163,76 @@ private fun ReadyEvidence(evidence: RetrievalEvidence) {
             label = "Limited by ${evidence.truncationBoundaries.joinToString(", ")}",
         )
     }
-    for (omission in evidence.omissions) {
-        StatusLine(mark = MARK_INFO, label = omission)
-    }
 
     for (entry in evidence.items) EvidenceCard(entry)
 
     for (contradiction in evidence.contradictions) ContradictionCard(contradiction)
 
+    // AFTER the evidence, not before it. These used to render above the items, one raw
+    // `kf:candidate:` identity per status line -- ten or more three-line blocks of hex
+    // between the user and the first thing they asked for. What was left out is real and
+    // worth stating, and it is still secondary to what came back.
+    OmittedCandidates(evidence.omissions)
+
     ReceiptPanel(evidence.receipt)
+}
+
+/**
+ * What matched and did not fit.
+ *
+ * ON THIS DEPLOYMENT THIS *IS* THE TRUNCATION NOTICE. The Foundry emits
+ * `truncation.boundaries` as an empty list and carries the real signal in `omissions`
+ * instead — a candidate identity per dropped row, capped at 64 — so the "Limited by …"
+ * line above never fires here while eight of eighteen matches quietly become the answer.
+ * Saying how many were dropped is therefore not a detail; it is the difference between
+ * "this is what there is" and "this is what fit".
+ *
+ * THE IDENTITIES STAY, BEHIND A DISCLOSURE. They are the only form the Foundry gives —
+ * no titles, no locators, nothing to read — so listing them openly costs a wall of hex and
+ * tells a person nothing. Folding them away is not hiding them: they are exactly what
+ * someone cross-checking against a Studio record needs, and they are one tap from view.
+ */
+@Composable
+private fun OmittedCandidates(omissions: List<String>) {
+    if (omissions.isEmpty()) return
+
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    StatusLine(
+        mark = MARK_INFO,
+        label = "${omissions.size} further candidate(s) matched and were not included",
+    )
+    TextButton(
+        onClick = { expanded = !expanded },
+        modifier = Modifier
+            .minimumTouchTarget()
+            .testTag(TAG_RETRIEVAL_OMISSIONS),
+    ) {
+        Text(if (expanded) "Hide omitted candidates" else "Show omitted candidates")
+    }
+    if (!expanded) return
+
+    AmberPanel(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(AmberTokens.panelPadding),
+            verticalArrangement = Arrangement.spacedBy(AmberTokens.baseUnit),
+        ) {
+            Text(
+                // The Foundry's own reasons, named rather than guessed at from the count.
+                "Identities only. A candidate is omitted when it exceeds the per-item size " +
+                    "limit, when the packet's byte budget is full, or when the evidence-item " +
+                    "cap is reached.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            for (omission in omissions) {
+                Text(
+                    omission,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+    }
 }
 
 /**
@@ -232,16 +305,7 @@ private fun EvidenceCard(entry: EvidenceEntry) {
                     modifier = Modifier.padding(start = 8.dp),
                 )
             } else {
-                // A QUOTATION. Monospace and offset so it reads as material from elsewhere
-                // rather than as the app speaking. It is never parsed, never interpreted,
-                // and never given to anything that could act on it.
-                Text(
-                    entry.text,
-                    style = MaterialTheme.typography.bodyMedium
-                        .copy(fontFamily = FontFamily.Monospace),
-                    color = MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.padding(start = 8.dp),
-                )
+                Quotation(entry)
             }
 
             for (source in entry.sources) {
@@ -285,6 +349,72 @@ private fun EvidenceCard(entry: EvidenceEntry) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
+    }
+}
+
+/**
+ * A QUOTATION, folded when it is long — never shortened.
+ *
+ * The Foundry's per-item ceiling is 8 000 bytes, so one evidence item can legitimately be
+ * an entire source file. Eight of those rendered in full is several hundred screens of
+ * monospace, and the receipt, the omissions and the next item are all somewhere past it.
+ * The feature stops being usable at exactly the point where retrieval works well.
+ *
+ * FOLDING IS NOT SUMMARISING, and the distinction is the whole design of this surface.
+ * Nothing is condensed, paraphrased, elided from the middle, or characterised: the fold
+ * takes the first [PREVIEW_LINES] lines, states the real total, and puts the rest one tap
+ * away. What a summary would do — decide which parts matter — is precisely what is never
+ * done here.
+ *
+ * It is also kept distinct from the Foundry's own truncation. "Limited by …" and the
+ * omitted-candidate count mean the SERVER left material out; this fold is a display choice
+ * this client made and can undo, so it says "first N of M lines" rather than anything that
+ * sounds like a limit.
+ */
+@Composable
+private fun Quotation(entry: EvidenceEntry) {
+    val lines = entry.text.lines()
+    val long = lines.size > PREVIEW_LINES || entry.text.length > PREVIEW_CHARS
+    // Keyed by identity so opening one item's quotation does not open the next one's, and
+    // so the state follows the item rather than its position in the list.
+    var expanded by rememberSaveable(entry.evidenceId) { mutableStateOf(false) }
+
+    val shown = when {
+        !long || expanded -> entry.text
+        else -> lines.take(PREVIEW_LINES).joinToString("\n").take(PREVIEW_CHARS)
+    }
+
+    // Monospace and offset so it reads as material from elsewhere rather than as the app
+    // speaking. It is never parsed, never interpreted, and never given to anything that
+    // could act on it.
+    Text(
+        shown,
+        style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.padding(start = 8.dp),
+    )
+
+    if (!long) return
+
+    if (!expanded) {
+        Text(
+            "first $PREVIEW_LINES of ${lines.size} lines",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(start = 8.dp),
+        )
+    }
+    TextButton(
+        onClick = { expanded = !expanded },
+        modifier = Modifier.minimumTouchTarget(),
+    ) {
+        Text(
+            if (expanded) {
+                "Show less of this quotation"
+            } else {
+                "Show the whole quotation (${lines.size} lines)"
+            },
+        )
     }
 }
 

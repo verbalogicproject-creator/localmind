@@ -26,6 +26,7 @@ import com.verbalogix.assistant.ui.evidence.RetrievalReceipt
 import com.verbalogix.assistant.ui.evidence.RetrievalTarget
 import com.verbalogix.assistant.ui.evidence.RetrievalUiState
 import com.verbalogix.assistant.ui.evidence.SourceRef
+import com.verbalogix.assistant.ui.evidence.TAG_RETRIEVAL_OMISSIONS
 import com.verbalogix.assistant.ui.evidence.TAG_RETRIEVAL_RECEIPT
 import com.verbalogix.assistant.ui.experts.ExpertDetail
 import com.verbalogix.assistant.ui.experts.ExpertDetailScreen
@@ -101,7 +102,10 @@ class ExpertDetailRetrievalTest {
                 packId = packId,
                 releaseId = releaseId,
                 kind = "passage",
-                text = "A pack is a signed, verifiable unit of knowledge.",
+                // LONG ON PURPOSE. The Foundry's per-item ceiling is 8 000 bytes, so a
+                // real item can be an entire source file -- which is what the phone
+                // showed, and what made eight results unreadable.
+                text = (1..240).joinToString("\n") { "line $it of a quoted source file" },
                 knowledgeStatus = "supported",
                 uncertainty = "none",
                 sources = listOf(
@@ -147,7 +151,7 @@ class ExpertDetailRetrievalTest {
             ),
         ),
         contradictions = emptyList(),
-        omissions = emptyList(),
+        omissions = (1..10).map { "kf:candidate:${"%02x".format(it).repeat(32)}" },
         truncationBoundaries = emptyList(),
         receipt = RetrievalReceipt(
             packetId = "kf:evidence-packet:${"e1".repeat(32)}",
@@ -246,7 +250,7 @@ class ExpertDetailRetrievalTest {
         compose.onNodeWithTag(TAG_EXPERT_QUERY_FIELD).performTextInput("what is a pack")
         compose.onNodeWithTag(TAG_EXPERT_QUERY_SUBMIT).performScrollTo().performClick()
 
-        compose.onNodeWithText("A pack is a signed, verifiable unit of knowledge.")
+        compose.onNodeWithText("line 1 of a quoted source file", substring = true)
             .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("docs/packs.md#L12 · internal", substring = true)
             .performScrollTo().assertIsDisplayed()
@@ -310,6 +314,57 @@ class ExpertDetailRetrievalTest {
         // The card is kept, not dropped: what it does carry is still evidence.
         compose.onNodeWithText("README.md · internal").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("graph paths: 1").performScrollTo().assertIsDisplayed()
+    }
+
+    /**
+     * A QUOTATION THE SIZE OF A SOURCE FILE IS FOLDED, NOT SHORTENED.
+     *
+     * Eight items at the Foundry's 8 000-byte ceiling is several hundred screens of
+     * monospace with the receipt somewhere past the end. The fold states the real total
+     * and opens on request -- nothing is condensed, and nothing is dropped from the middle.
+     */
+    @Test
+    fun a_long_quotation_is_folded_with_its_real_length_and_opens_in_full() {
+        screen()
+        compose.onNodeWithTag(TAG_EXPERT_QUERY_FIELD).performScrollTo()
+        compose.onNodeWithTag(TAG_EXPERT_QUERY_FIELD).performTextInput("memory")
+        compose.onNodeWithTag(TAG_EXPERT_QUERY_SUBMIT).performScrollTo().performClick()
+
+        // The head is shown and the tail is not.
+        compose.onNodeWithText("line 1 of a quoted source file", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("line 240 of a quoted source file", substring = true)
+            .assertCountEquals(0)
+        // THE REAL TOTAL, not a vague "truncated".
+        compose.onNodeWithText("first 12 of 240 lines").performScrollTo().assertIsDisplayed()
+
+        compose.onNodeWithText("Show the whole quotation (240 lines)")
+            .performScrollTo().performClick()
+        compose.onNodeWithText("line 240 of a quoted source file", substring = true)
+            .performScrollTo().assertIsDisplayed()
+    }
+
+    /**
+     * OMISSIONS ARE COUNTED FIRST AND LISTED SECOND.
+     *
+     * On this Foundry `truncation.boundaries` is always empty and the real signal is the
+     * omission list, so the count IS the "what fit versus what exists" notice. Ten raw
+     * identities rendered above the evidence was the shape that buried it.
+     */
+    @Test
+    fun omitted_candidates_are_summarised_before_they_are_listed() {
+        screen()
+        compose.onNodeWithTag(TAG_EXPERT_QUERY_FIELD).performScrollTo()
+        compose.onNodeWithTag(TAG_EXPERT_QUERY_FIELD).performTextInput("memory")
+        compose.onNodeWithTag(TAG_EXPERT_QUERY_SUBMIT).performScrollTo().performClick()
+
+        compose.onNodeWithText("10 further candidate(s) matched and were not included")
+            .performScrollTo().assertIsDisplayed()
+        // Identities stay available -- folded, not withheld.
+        compose.onAllNodesWithText("kf:candidate:", substring = true).assertCountEquals(0)
+        compose.onNodeWithTag(TAG_RETRIEVAL_OMISSIONS).performScrollTo().performClick()
+        compose.onAllNodesWithText("kf:candidate:", substring = true)
+            .assertCountEquals(10)
     }
 
     // ── the gate ────────────────────────────────────────────────────────────
