@@ -122,6 +122,34 @@ jobs:
       - name: Exercise R8 (release compile, not published)
         run: ./gradlew assembleRelease bundleRelease --stacktrace
 
+      # Every native library must be able to LOAD, not merely be present.
+      #
+      # THE INCIDENT this exists for: eight arm64 libraries declared NEEDED libomp.so
+      # and none of them shipped it. ggml links against OpenMP on arm64 and libomp.so
+      # belongs to the NDK, not the build -- so a workflow packaging what cmake wrote
+      # dropped it. Build, unit tests, lint, R8 and every preflight check stayed green;
+      # the app died at the first System.loadLibrary, and only a physical device said so.
+      #
+      # RUN HERE, NOT IN PREFLIGHT, and the distinction is load-bearing. Preflight check
+      # 190 reads what the REPOSITORY declares, and this project vendors no .so at all --
+      # they are downloaded during the build, so 190 correctly reports "no native
+      # libraries" and protects nothing. The artifact is the only place the question can
+      # be asked, which means it has to be asked after something is built.
+      #
+      # The emulator rung cannot cover this either: no x86_64 library declares the
+      # dependency, because upstream enables OpenMP for arm64 only.
+      - name: Verify every native library's dependencies ship
+        run: |
+          set -e
+          bash scripts/verify-apk-native-linkage.sh app/build/outputs/apk/debug/app-debug.apk
+          # Located rather than named. The release APK is app-release.apk or
+          # app-release-unsigned.apk depending on whether signing credentials were
+          # present, and an `A || B` over the two names would run B when A found a REAL
+          # unresolved dependency -- turning a genuine failure into a usage error.
+          REL="$(find app/build/outputs/apk/release -name '*.apk' -print -quit 2>/dev/null)"
+          [ -n "$REL" ] || { echo "::error::no release APK to verify"; exit 1; }
+          bash scripts/verify-apk-native-linkage.sh "$REL"
+
       # R8 emits a complete record of what it did, and until now nothing read it.
       # mapping.txt is the authoritative answer to "was this renamed or removed",
       # it costs milliseconds, and it needs no emulator.
