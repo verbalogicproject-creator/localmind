@@ -49,8 +49,13 @@ two screenshots of the Expert Detail surface; nothing below is inferred.
 - **Progressive disclosure works.** Identity and Verification expand; pack, release and
   install identities and four SHA-256 digests render **full length, wrapping across two
   lines, never truncated** — which is what that surface was built to do.
-- **Not yet observed:** the library list itself, filters, search, rotation across an
-  expiry boundary, or a `Pair again` path.
+- **Proactive rotation works, observed 2026-08-17.** Still `Connected` after six minutes
+  on screen, and still `Connected` after a further six minutes spent on Chat. The token
+  is minted for 300 seconds, so surviving past five minutes is only possible if it was
+  actually replaced — **at least one rotation completed**, unattended.
+  Surviving the navigation leg separately proves the loop is no longer owned by a screen.
+- **Not yet observed:** the library list itself, filters, search, a `Pair again` path,
+  behaviour under long backgrounding or doze, and any retrieval.
 
 ## Verification status
 
