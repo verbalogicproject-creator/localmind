@@ -24,12 +24,14 @@ import com.verbalogix.assistant.data.Provider
 import com.verbalogix.assistant.data.ServerStatus
 import com.verbalogix.assistant.data.capability.Capabilities
 import com.verbalogix.assistant.data.capability.CapabilityState
+import com.verbalogix.assistant.data.harness.HarnessSessionState
 import com.verbalogix.assistant.ui.components.AmberPanel
 import com.verbalogix.assistant.ui.components.MARK_ERROR
 import com.verbalogix.assistant.ui.components.MARK_INFO
 import com.verbalogix.assistant.ui.components.MARK_OK
 import com.verbalogix.assistant.ui.components.StatusLine
 import com.verbalogix.assistant.ui.components.minimumTouchTarget
+import com.verbalogix.assistant.ui.pairing.PairingPanel
 import com.verbalogix.assistant.ui.theme.AmberTokens
 import com.verbalogix.assistant.ui.theme.LocalmindTheme
 
@@ -63,6 +65,15 @@ fun SetupReadinessScreen(
     buildLabel: String,
     onContinue: () -> Unit,
     onOpenProviders: () -> Unit,
+    /**
+     * The Harness session, offered here as well as on Experts.
+     *
+     * Null means the panel is not shown at all -- used by previews and by any caller that
+     * has no session to report. It is never a substitute for `NotPaired`, which is a real
+     * state with a real instruction attached.
+     */
+    session: HarnessSessionState? = null,
+    onPair: (String) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -92,6 +103,13 @@ fun SetupReadinessScreen(
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            // Optional, and placed after the observations rather than before them: the
+            // screen's job is to report what is true, and pairing is an action the user
+            // may take once they have read it. Continue to chat is never gated on it.
+            if (session != null) {
+                PairingPanel(state = session, onPair = onPair)
+            }
 
             // ── What was observed ───────────────────────────────────────────────
             AmberPanel(modifier = Modifier.fillMaxWidth()) {

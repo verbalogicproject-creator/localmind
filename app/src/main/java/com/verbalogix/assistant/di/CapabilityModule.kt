@@ -1,7 +1,10 @@
 package com.verbalogix.assistant.di
 
 import com.verbalogix.assistant.data.capability.CapabilitySource
-import com.verbalogix.assistant.data.capability.UnavailableCapabilitySource
+import com.verbalogix.assistant.data.harness.HarnessSessionRepository
+import com.verbalogix.assistant.data.harness.ManualPairingCredentialSource
+import com.verbalogix.assistant.data.harness.PairingCredentialSource
+import dagger.Binds
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -21,7 +24,36 @@ import javax.inject.Singleton
 @InstallIn(SingletonComponent::class)
 object CapabilityModule {
 
+    /**
+     * Capabilities now come from the Harness, not from a hardcoded refusal.
+     *
+     * This returned `UnavailableCapabilitySource()` for as long as there was no client to
+     * ask. The answer is usually still "unavailable" -- an unpaired session declares
+     * nothing -- but it is now an OBSERVED unavailability rather than an asserted one,
+     * and it becomes availability the moment a session is live without any code change
+     * here.
+     */
     @Provides
     @Singleton
-    fun provideCapabilitySource(): CapabilitySource = UnavailableCapabilitySource()
+    fun provideCapabilitySource(repository: HarnessSessionRepository): CapabilitySource =
+        repository
+}
+
+/**
+ * Where a pairing credential may come from.
+ *
+ * A separate module with a `@Binds` because the implementation is expected to change: the
+ * Foundry is building a Termux→Localmind pairing bridge, and when its contract is
+ * observed it arrives as a second implementation bound here. Everything downstream
+ * consumes the interface and needs no edit.
+ */
+@Module
+@InstallIn(SingletonComponent::class)
+abstract class PairingModule {
+
+    @Binds
+    @Singleton
+    abstract fun bindPairingCredentialSource(
+        impl: ManualPairingCredentialSource,
+    ): PairingCredentialSource
 }

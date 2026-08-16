@@ -43,6 +43,11 @@ import com.verbalogix.assistant.ui.experts.ExpertDetailViewModel
 import com.verbalogix.assistant.ui.experts.ExpertLibraryScreen
 import com.verbalogix.assistant.ui.experts.ExpertLibraryViewModel
 import com.verbalogix.assistant.ui.providers.ModelsProvidersScreen
+import com.verbalogix.assistant.ui.pairing.PairingPanel
+import com.verbalogix.assistant.ui.pairing.PairingViewModel
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import com.verbalogix.assistant.ui.setup.SetupReadinessScreen
 import com.verbalogix.assistant.ui.tools.NoToolProposalSource
 import com.verbalogix.assistant.ui.tools.ToolApprovalSheet
@@ -179,10 +184,20 @@ fun AppNavHost(
                 val provider by chat.provider.collectAsStateWithLifecycle()
                 val status by chat.status.collectAsStateWithLifecycle()
 
+                val pairing: PairingViewModel = hiltViewModel()
+                val session by pairing.session.collectAsStateWithLifecycle()
+
                 SetupReadinessScreen(
                     provider = provider,
                     status = status,
                     foundry = capabilities.expertLibrary,
+                    // Offered on first run as well as on Experts. Setup is where the app
+                    // explains what a Foundry is FOR, which is the one moment a user has
+                    // the context to decide whether to pair at all -- and it is optional
+                    // here, exactly like the readiness it reports: Continue is never
+                    // gated on it.
+                    session = session,
+                    onPair = pairing::pair,
                     buildLabel = "v${BuildConfig.VERSION_NAME} · ${BuildConfig.GIT_SHA}",
                     onContinue = {
                         shellViewModel.completeSetup()
@@ -264,13 +279,27 @@ fun AppNavHost(
             composable(Destinations.EXPERTS) {
                 val vm: ExpertLibraryViewModel = hiltViewModel()
                 val state by vm.state.collectAsStateWithLifecycle()
+                val pairing: PairingViewModel = hiltViewModel()
+                val session by pairing.session.collectAsStateWithLifecycle()
 
-                ExpertLibraryScreen(
-                    state = state,
-                    onOpenExpert = { packId, version ->
-                        Destinations.expertDetail(packId, version)?.let(navController::navigate)
-                    },
-                )
+                // THE PANEL SITS ABOVE THE LIBRARY, not behind a menu. When the library
+                // is unavailable, the session is almost always why -- so the remedy
+                // belongs on the screen that is failing, next to the explanation of what
+                // is missing. Hiding it once connected would be worse: a user whose
+                // session has just ended needs to find it in the same place.
+                // No padding here: the NavHost already applies the Scaffold's insets to
+                // every destination, and re-applying them would double the bottom gap
+                // above the navigation bar.
+                Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                    PairingPanel(state = session, onPair = pairing::pair)
+                    ExpertLibraryScreen(
+                        state = state,
+                        onOpenExpert = { packId, version ->
+                            Destinations.expertDetail(packId, version)
+                                ?.let(navController::navigate)
+                        },
+                    )
+                }
             }
 
             // ── experts/{packId}/{version} ──────────────────────────────────────

@@ -1,5 +1,8 @@
 package com.verbalogix.assistant.data.capability
 
+import com.verbalogix.assistant.data.harness.HarnessClient
+import com.verbalogix.assistant.data.harness.HarnessSessionRepository
+import com.verbalogix.assistant.data.harness.ManualPairingCredentialSource
 import com.verbalogix.assistant.di.CapabilityModule
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -51,11 +54,16 @@ class CapabilitiesTest {
     }
 
     @Test
-    fun `the production Hilt binding yields the unavailable source`() {
-        val source = CapabilityModule.provideCapabilitySource()
-        assertTrue(source is UnavailableCapabilitySource)
+    fun `the production Hilt binding yields the real Harness source`() {
+        // This asserted `UnavailableCapabilitySource` until a client existed to ask. The
+        // ANSWER is unchanged for an unpaired app -- Capabilities.NONE -- but it is now
+        // an OBSERVED unavailability rather than an asserted one, and it becomes
+        // availability when a session lands without any edit here.
+        val repository = HarnessSessionRepository(HarnessClient(), ManualPairingCredentialSource())
+        val source = CapabilityModule.provideCapabilitySource(repository)
+        assertTrue(source is HarnessSessionRepository)
         val emitted = runBlocking { source.capabilities().first() }
-        assertEquals(Capabilities.NONE, emitted)
+        assertEquals("an unpaired session declares nothing", Capabilities.NONE, emitted)
     }
 
     @Test
@@ -81,10 +89,11 @@ class CapabilitiesTest {
      */
     @Test
     fun `debug fixtures are not wired into the graph`() {
-        val source = CapabilityModule.provideCapabilitySource()
+        val repository = HarnessSessionRepository(HarnessClient(), ManualPairingCredentialSource())
+        val source = CapabilityModule.provideCapabilitySource(repository)
         assertEquals(
             "the graph must be identical in debug and release",
-            UnavailableCapabilitySource::class.java,
+            HarnessSessionRepository::class.java,
             source.javaClass,
         )
         assertFalse(

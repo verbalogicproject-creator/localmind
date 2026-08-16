@@ -6,47 +6,80 @@ import androidx.lifecycle.viewModelScope
 import com.verbalogix.assistant.data.capability.Capabilities
 import com.verbalogix.assistant.data.capability.CapabilitySource
 import com.verbalogix.assistant.data.capability.CapabilityState
+import com.verbalogix.assistant.data.harness.HarnessClient
+import com.verbalogix.assistant.data.harness.HarnessSessionRepository
 import com.verbalogix.assistant.ui.nav.ARG_PACK_ID
 import com.verbalogix.assistant.ui.nav.ARG_VERSION
 import com.verbalogix.assistant.ui.nav.RouteArgs
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 
 /**
  * Backs the expert library.
  *
- * It has no expert source, and that is not an omission to be filled in later by this
- * class. Listing mounted packs is `mount.list` on the Foundry Harness -- a capability
- * this client does not have -- so the only truthful state is unavailable, derived from
- * the declared capability rather than hard-coded, so that the day a real client
- * declares `mount.list` this screen starts working without being rewritten.
+ * IT NOW HAS A SOURCE. This class held no client at all until the Harness contract closed:
+ * listing packs was a capability nothing could exercise, so the only truthful state was
+ * unavailable -- DERIVED from the declared capability rather than hard-coded, precisely so
+ * that the day a real client arrived the screen would start working without being
+ * rewritten. That derivation is what made this a wiring change instead of a rebuild.
  *
- * DELIBERATELY NOT A PROVIDER. An expert is knowledge; a provider is an endpoint that
- * runs weights. An earlier design in this project collapsed the two -- "an expert IS a
- * model", routed through `/v1/models` -- and that is explicitly withdrawn here: it
- * would make selecting knowledge indistinguishable from selecting an LLM, and would put
- * pack identity into a field whose meaning belongs to llama-swap.
+ * DELIBERATELY NOT A PROVIDER. An expert is knowledge; a provider is an endpoint that runs
+ * weights. An earlier design collapsed the two -- "an expert IS a model", routed through
+ * `/v1/models` -- and that stays withdrawn: it would make selecting knowledge
+ * indistinguishable from selecting an LLM, and would put pack identity into a field whose
+ * meaning belongs to llama-swap.
  */
 @HiltViewModel
 class ExpertLibraryViewModel @Inject constructor(
     capabilities: CapabilitySource,
+    private val session: HarnessSessionRepository,
+    private val client: HarnessClient,
 ) : ViewModel() {
 
-    val state: StateFlow<ExpertLibraryUiState> = capabilities.capabilities()
-        .map { caps ->
-            when (val gate = caps.expertLibrary) {
-                is CapabilityState.Unavailable -> ExpertLibraryUiState.Unavailable(gate)
-                // Reachable only once a real client declares the capability. There is
-                // no discovery call to make yet, so an available capability with no
-                // source is reported as empty rather than as a fabricated list.
-                CapabilityState.Available -> ExpertLibraryUiState.Empty
+    private val fetched = MutableStateFlow<ExpertLibraryUiState?>(null)
+
+    /**
+     * Fetch the catalog whenever the capability opens, and drop it when it closes.
+     *
+     * Keyed on the GATE rather than on a screen event, so a session arriving while this
+     * screen is already open populates it without the user leaving and coming back.
+     *
+     * Clearing on close is the half that matters: a list from a session that has ended is
+     * stale in the one way that does damage, because it still looks current.
+     */
+    init {
+        viewModelScope.launch {
+            capabilities.capabilities().collect { caps ->
+                fetched.value = if (caps.expertLibrary is CapabilityState.Available) {
+                    session.bearer()?.let { client.expertCatalog(it).toLibraryState() }
+                } else {
+                    null
+                }
             }
         }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ExpertLibraryUiState.Loading)
+    }
+
+    val state: StateFlow<ExpertLibraryUiState> =
+        combine(capabilities.capabilities(), fetched) { caps, loaded ->
+            when (val gate = caps.expertLibrary) {
+                is CapabilityState.Unavailable -> ExpertLibraryUiState.Unavailable(gate)
+                // Available, fetch not landed. Loading is the honest state: an empty list
+                // here would assert "nothing is mounted", which is a claim about the
+                // Foundry rather than about this client's progress.
+                CapabilityState.Available -> loaded ?: ExpertLibraryUiState.Loading
+            }
+        }.stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5_000),
+            ExpertLibraryUiState.Loading,
+        )
 
     /**
      * Whether the shell should offer the Experts destination at all.
@@ -61,7 +94,7 @@ class ExpertLibraryViewModel @Inject constructor(
 }
 
 /**
- * Backs one expert's detail surface.
+ * Backs one release's detail surface.
  *
  * The route arguments are re-validated here for the same reason
  * [com.verbalogix.assistant.ui.evidence.EvidenceViewModel] re-validates its id: a
@@ -72,6 +105,8 @@ class ExpertLibraryViewModel @Inject constructor(
 class ExpertDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     capabilities: CapabilitySource,
+    private val session: HarnessSessionRepository,
+    private val client: HarnessClient,
 ) : ViewModel() {
 
     private val packId: String? =
@@ -79,18 +114,37 @@ class ExpertDetailViewModel @Inject constructor(
     private val version: String? =
         RouteArgs.identifierOrNull(savedStateHandle.get<String>(ARG_VERSION))
 
-    val state: StateFlow<ExpertDetailUiState> = capabilities.capabilities()
-        .map { caps ->
-            when (val gate = caps.expertLibrary) {
-                is CapabilityState.Unavailable -> ExpertDetailUiState.Unavailable(gate)
-                CapabilityState.Available ->
-                    // Nothing can look a pack up, so a well-formed route for a pack
-                    // that cannot be fetched is reported as not-found rather than as a
-                    // blank screen that looks like a loading failure.
-                    ExpertDetailUiState.NotFound(packId.orEmpty(), version.orEmpty())
+    private val fetched = MutableStateFlow<ExpertDetailUiState?>(null)
+
+    init {
+        viewModelScope.launch {
+            capabilities.capabilities().collect { caps ->
+                val id = packId
+                val ver = version
+                fetched.value = when {
+                    caps.expertLibrary !is CapabilityState.Available -> null
+
+                    // A MALFORMED ROUTE ARGUMENT NEVER BECOMES A REQUEST. The identity is
+                    // interpolated into a request body, so an unvalidated one reaching the
+                    // wire is exactly the failure RouteArgs exists to prevent.
+                    id == null || ver == null -> ExpertDetailUiState.NotFound(
+                        packId.orEmpty(), version.orEmpty(),
+                    )
+
+                    else -> session.bearer()
+                        ?.let { client.inspectRelease(it, id, ver).toDetailState() }
+                }
             }
         }
-        .stateIn(
+    }
+
+    val state: StateFlow<ExpertDetailUiState> =
+        combine(capabilities.capabilities(), fetched) { caps, loaded ->
+            when (val gate = caps.expertLibrary) {
+                is CapabilityState.Unavailable -> ExpertDetailUiState.Unavailable(gate)
+                CapabilityState.Available -> loaded ?: ExpertDetailUiState.Loading
+            }
+        }.stateIn(
             viewModelScope,
             SharingStarted.WhileSubscribed(5_000),
             ExpertDetailUiState.Loading,
