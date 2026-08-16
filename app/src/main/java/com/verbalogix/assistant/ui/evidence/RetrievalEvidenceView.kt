@@ -1,0 +1,339 @@
+package com.verbalogix.assistant.ui.evidence
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
+import com.verbalogix.assistant.ui.components.AmberPanel
+import com.verbalogix.assistant.ui.components.EmptyNotice
+import com.verbalogix.assistant.ui.components.MARK_ERROR
+import com.verbalogix.assistant.ui.components.MARK_INFO
+import com.verbalogix.assistant.ui.components.MARK_OK
+import com.verbalogix.assistant.ui.components.StatusLine
+import com.verbalogix.assistant.ui.components.minimumTouchTarget
+import com.verbalogix.assistant.ui.theme.AmberTokens
+
+const val TAG_RETRIEVAL_EVIDENCE = "retrieval-evidence"
+const val TAG_RETRIEVAL_RECEIPT = "retrieval-receipt"
+
+/**
+ * What an expert knows about a question — and nothing about an answer.
+ *
+ * THIS SURFACE DELIBERATELY PRODUCES NO ANSWER. `canonical-assistant-turn` is
+ * planned-not-implemented, so no artifact could link a model's reply to this evidence.
+ * Showing the evidence and stopping is the honest half of the feature; the other half
+ * waits for a contract that can attest it.
+ *
+ * The Harness's [RetrievalEvidence.answerability] is rendered as the Harness's word, in a
+ * line that says so. Nothing here is scored, summarised or counted into a verdict.
+ */
+@Composable
+fun RetrievalEvidenceView(
+    state: RetrievalUiState,
+    modifier: Modifier = Modifier,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .testTag(TAG_RETRIEVAL_EVIDENCE),
+        verticalArrangement = Arrangement.spacedBy(AmberTokens.baseUnit),
+    ) {
+        when (state) {
+            RetrievalUiState.Idle -> Unit
+
+            RetrievalUiState.Querying ->
+                StatusLine(mark = MARK_INFO, label = "Asking the expert…")
+
+            is RetrievalUiState.Unavailable -> AmberPanel(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.padding(AmberTokens.panelPadding),
+                    verticalArrangement = Arrangement.spacedBy(AmberTokens.baseUnit),
+                ) {
+                    StatusLine(mark = MARK_INFO, label = "Unavailable")
+                    Text(
+                        state.reason,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurface,
+                    )
+                    Text(
+                        "Requires: ${state.requiredCapability}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            // The Harness declining is the Harness working. Its own words, its own code.
+            is RetrievalUiState.Declined -> EmptyNotice(
+                title = "The expert did not answer",
+                body = "Knowledge Foundry reported \"${state.disposition}\"" +
+                    (state.reasonCode?.let { ": $it" } ?: "") + ".",
+            )
+
+            is RetrievalUiState.Refused -> EmptyNotice(
+                title = "Reply not accepted",
+                body = state.detail,
+            )
+
+            is RetrievalUiState.Ready -> ReadyEvidence(state.evidence)
+        }
+    }
+}
+
+@Composable
+private fun ReadyEvidence(evidence: RetrievalEvidence) {
+    AnswerabilityLine(evidence.answerability)
+
+    // NOT AN ANSWER, said once and plainly. Without it a reader can mistake a quoted
+    // excerpt for the app's reply, which is the precise confusion this design avoids.
+    Text(
+        "Evidence retrieved from mounted experts. Localmind has not written an answer " +
+            "from it — these are quotations from the sources.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+
+    if (evidence.truncationBoundaries.isNotEmpty()) {
+        // "What fit" versus "what exists" is a difference the user cannot otherwise see.
+        StatusLine(
+            mark = MARK_INFO,
+            label = "Limited by ${evidence.truncationBoundaries.joinToString(", ")}",
+        )
+    }
+    for (omission in evidence.omissions) {
+        StatusLine(mark = MARK_INFO, label = omission)
+    }
+
+    for (entry in evidence.items) EvidenceCard(entry)
+
+    for (contradiction in evidence.contradictions) ContradictionCard(contradiction)
+
+    ReceiptPanel(evidence.receipt)
+}
+
+/**
+ * The Harness's verdict, attributed to the Harness.
+ *
+ * Attribution is the load-bearing part. "Supported" alone reads as the app's assessment;
+ * naming who said it keeps the claim where it belongs, and makes "conflicted" legible as
+ * a finding rather than an error.
+ */
+@Composable
+private fun AnswerabilityLine(answerability: String) {
+    val (mark, tint) = when (answerability) {
+        "supported" -> MARK_OK to MaterialTheme.colorScheme.primary
+        "conflicted", "insufficient" -> MARK_INFO to MaterialTheme.colorScheme.onSurfaceVariant
+        else -> MARK_ERROR to MaterialTheme.colorScheme.error
+    }
+    StatusLine(
+        mark = mark,
+        label = "Knowledge Foundry assessed this evidence as \"$answerability\"",
+        tint = tint,
+    )
+}
+
+@Composable
+private fun EvidenceCard(entry: EvidenceEntry) {
+    AmberPanel(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(AmberTokens.panelPadding),
+            verticalArrangement = Arrangement.spacedBy(AmberTokens.baseUnit),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    entry.kind,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    // Per-item status, from the contract's own enum.
+                    entry.knowledgeStatus,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            // A QUOTATION. Monospace and offset so it reads as material from elsewhere
+            // rather than as the app speaking. It is never parsed, never interpreted, and
+            // never given to anything that could act on it.
+            Text(
+                entry.text,
+                style = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.padding(start = 8.dp),
+            )
+
+            for (source in entry.sources) {
+                Text(
+                    "${source.logicalLocator} · ${source.sensitivity}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            if (entry.uncertainty != "none") {
+                StatusLine(mark = MARK_INFO, label = "uncertainty ${entry.uncertainty}")
+            }
+
+            if (entry.graphPathIds.isNotEmpty()) {
+                // IDS, LABELLED AS IDS. The contract carries graph_path_ids and no path
+                // narration, so a rendered "A → B → C" would be invented. A linear list
+                // of real identities is worth more than a diagram of made-up ones.
+                Text(
+                    "graph paths: ${entry.graphPathIds.size}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                for (id in entry.graphPathIds) {
+                    Text(
+                        id,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+
+            Text(
+                buildString {
+                    append("rank ${entry.packFusedRank} in pack, ${entry.globalFusedRank} overall")
+                    // Null means the channel did not surface it -- not rank zero.
+                    entry.lexicalRank?.let { append(" · lexical $it") }
+                    entry.graphRank?.let { append(" · graph $it") }
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun ContradictionCard(contradiction: ContradictionView) {
+    AmberPanel(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(AmberTokens.panelPadding),
+            verticalArrangement = Arrangement.spacedBy(AmberTokens.baseUnit),
+        ) {
+            StatusLine(
+                mark = MARK_ERROR,
+                label = "Sources disagree" +
+                    (contradiction.disposition?.let { " · $it" } ?: ""),
+                tint = MaterialTheme.colorScheme.onSurface,
+            )
+            if (contradiction.members.isEmpty()) {
+                // The bare-identity arm of the oneOf. "Detail not included" is a
+                // different statement from "no members", and saying the wrong one would
+                // understate a disagreement.
+                Text(
+                    "The Foundry reported this disagreement by identity only; its members " +
+                        "were not included.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                for (member in contradiction.members) {
+                    Text(
+                        member.packId,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+    }
+}
+
+/**
+ * The receipt, behind progressive disclosure and copyable in full.
+ *
+ * It certifies WHAT WAS RETRIEVED. It says nothing about any answer, and the heading says
+ * so, because a row of digests under a chat reply would otherwise read as proof of the
+ * reply.
+ */
+@Composable
+private fun ReceiptPanel(receipt: RetrievalReceipt) {
+    var expanded by rememberSaveable { mutableStateOf(false) }
+    TextButton(
+        onClick = { expanded = !expanded },
+        modifier = Modifier
+            .minimumTouchTarget()
+            .testTag(TAG_RETRIEVAL_RECEIPT),
+    ) {
+        Text(if (expanded) "Hide retrieval receipt" else "Show retrieval receipt")
+    }
+    if (!expanded) return
+
+    AmberPanel(modifier = Modifier.fillMaxWidth()) {
+        Column(
+            modifier = Modifier.padding(AmberTokens.panelPadding),
+            verticalArrangement = Arrangement.spacedBy(AmberTokens.baseUnit),
+        ) {
+            Text(
+                "Retrieval receipt",
+                style = MaterialTheme.typography.titleSmall,
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.semantics { heading() },
+            )
+            Text(
+                "Identifies what was retrieved and how. It does not attest to any answer.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+            CopyableValue("Packet", receipt.packetId)
+            CopyableValue("Packet SHA-256", receipt.packetSha256)
+            CopyableValue("Trace", receipt.traceId)
+            CopyableValue("Deterministic core SHA-256", receipt.deterministicCoreSha256)
+            CopyableValue("Plan", receipt.planId)
+            CopyableValue("Result SHA-256", receipt.resultSha256)
+            CopyableValue("Mount registry SHA-256", receipt.mountRegistrySha256)
+        }
+    }
+}
+
+/** Full length, never abbreviated: this is what gets compared against a Studio record. */
+@Composable
+private fun CopyableValue(label: String, value: String) {
+    val clipboard = LocalClipboardManager.current
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .minimumTouchTarget()
+            .clickable { clipboard.setText(AnnotatedString(value)) }
+            .semantics { contentDescription = "Copy $label" },
+    ) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            value,
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}
