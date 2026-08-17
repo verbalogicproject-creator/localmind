@@ -3,7 +3,8 @@
 **Date:** 2026-08-17
 **Repo:** `/root/projects/localmind`
 **Branch:** `feat/amber-seven-surface-shell`
-**HEAD:** `374a8b8` (pushed through `1b2b90d`; `ecb6b93` and `374a8b8` are **local only**)
+**HEAD:** `ef2a53f` — fully pushed, branch in sync with `origin`
+**CI status:** `ci.yml` and `emulator.yml` both **green on `ef2a53f`**
 **Product state:** v0.1.0 release candidate, scope frozen at `297321a`. **Not tagged.**
 
 ---
@@ -68,17 +69,23 @@ resource archive back in, align, re-sign. Scripted at
 
 | rung | result | commit |
 |---|---|---|
-| JVM unit | **295 passed, 0 failed** | `1b2b90d` |
+| JVM unit | **295 passed, 0 failed** | `ef2a53f` |
 | Android lint (debug) | clean | `1b2b90d` |
-| Static preflight (`scripts/preflight.sh`) | clean, 15 checks | `1b2b90d` |
-| `ci.yml` | **success** (run `32009711691`) | `77e9570` |
-| `emulator.yml` | **success** (run `32009716341`) | `77e9570` |
-| Instrumented, emulator API 28 / 36 | **133 / 132 passed, 0 failed** | `77e9570` |
-| Instrumented, **physical device** (debug) | **OK (132 tests), 0 failed** | working tree ≈ `ecb6b93` |
+| Static preflight (`scripts/preflight.sh`) | clean, 15 checks | `ef2a53f` |
+| `ci.yml` | **success** (run `32029821647`) | `ef2a53f` |
+| `emulator.yml` | **success** (run `32029825084`) | `ef2a53f` |
+| Instrumented, emulator API 28 / 36 | **133 / 132 passed, 0 failed** | `ef2a53f` |
+| Release launch smoke | passed | `ef2a53f` |
+| Instrumented, **physical device** (debug) | **OK (132 tests), 0 failed** — but see caveat | ≈ `1b2b90d` |
 | Instrumented, **physical device** (release/R8) | **not achieved** — see §4 | — |
 
+> **Caveat on the physical-device green.** That run predates `ecb6b93`, so it is *not*
+> evidence about the current tree. Carrying it forward is how the `CapabilityGateTest`
+> regression in §3.1 reached `origin`. Re-run it before citing it.
+
 **Neither workflow runs on a push to this branch.** `ci.yml` triggers on `main` + PRs;
-`emulator.yml` on `main`, tags, and dispatch. Use:
+`emulator.yml` on `main`, tags, and dispatch. A silent green branch means *nothing ran* —
+dispatch explicitly after every push:
 
 ```bash
 gh workflow run ci.yml       --ref feat/amber-seven-surface-shell
@@ -89,14 +96,63 @@ gh workflow run emulator.yml --ref feat/amber-seven-surface-shell
 
 ## 3. Commits made this session
 
-| commit | pushed | what |
-|---|---|---|
-| `2cca4ea` | ✅ | v0.1.0 RC polish (4 items) + on-device model folder |
-| `77e9570` | ✅ | `v0.1.0-completion-report.md` |
-| `5312f20` | ✅ | Shortened the no-model status text |
-| `1b2b90d` | ✅ | Recorded green CI/emulator in the report |
-| `ecb6b93` | ❌ **local** | Test source-set fix + `-PinstrumentRelease` flag |
-| `374a8b8` | ❌ **local** | R8 instrumentation keep rules + diagnosis |
+All pushed; branch in sync with `origin`.
+
+| commit | what |
+|---|---|
+| `2cca4ea` | v0.1.0 RC polish (4 items) + on-device model folder |
+| `77e9570` | `v0.1.0-completion-report.md` |
+| `5312f20` | Shortened the no-model status text |
+| `1b2b90d` | Recorded green CI/emulator in the report |
+| `ecb6b93` | Test source-set fix + `-PinstrumentRelease` flag |
+| `374a8b8` | R8 instrumentation keep rules + diagnosis |
+| `79cf00f` | This handoff |
+| `ef2a53f` | **Fixed two regressions `ecb6b93` introduced** — see §3.1 |
+
+### 3.1 `ef2a53f` — two traps worth knowing before you edit anything
+
+`ecb6b93` was pushed without re-running the gates and broke both. Both are cheap to hit again.
+
+**Trap 1 — a comment can fail preflight check 020.**
+
+```
+FAIL the build references 'instrumentRelease' but no such file exists
+```
+
+`scripts/preflight/checks/020-build-referenced-files.sh` slurps the whole build file and
+matches `\w*[Pp]roguardFiles?\s*\((.*?)\)\s*$` with `/gms`, harvesting every quoted string
+in the capture. So writing that call's name **followed by an opening paren** anywhere in
+`app/build.gradle.kts` — *including inside a comment* — opens a match that runs to the next
+`)` at end of line and treats every string in between as a path. A doc comment mentioning
+it swallowed `hasProperty("instrumentRelease")` and reported it as a missing file.
+
+The check is not wrong; it cannot know which literals are paths. **Do not add an exception
+to it.** Name that function without parentheses in prose, and keep property lookups out of
+its argument list — `instrumentRelease` is read into a val at the top of the file for
+exactly this reason, with a warning comment attached.
+
+**Trap 2 — a stale green is not evidence.**
+
+`CapabilityGateTest:186` asserts the fixture's `action` string literally. `ecb6b93` moved the
+fixture to `androidTest` *and* changed its text from `(preview fixture)` to `(test fixture)`
+in one change, leaving the assertion behind. The physical-device run that passed 132 tests
+predated the move, and citing it as if it covered the new code is what let this reach
+`origin`. **If you change a fixture's text, grep for the literal:**
+
+```bash
+grep -rn "EXAMPLE action" --include=*.kt app/src
+```
+
+Note there are deliberately **two** copies of this fixture — `androidTest` for tests,
+`src/debug` for Compose previews — with different wording. That duplication is intentional
+(see §3 `ecb6b93`); do not "DRY" them back together, or the suite re-pins to one build type.
+
+Always run before pushing:
+
+```bash
+bash scripts/preflight.sh
+./gradlew :app:testDebugUnitTest :app:assembleDebugAndroidTest
+```
 
 ### `2cca4ea` — RC polish (all inside frozen scope)
 
