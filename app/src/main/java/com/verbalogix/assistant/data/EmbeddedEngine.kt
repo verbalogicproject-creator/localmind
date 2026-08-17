@@ -105,18 +105,22 @@ class EmbeddedEngine @Inject constructor(
         .firstOrNull()
 
     /**
-     * Why there is no model, without inventing a cause.
+     * Why there is no model — one fact, not an inventory.
      *
-     * An unreadable folder and an absent one are indistinguishable from here — both are a
-     * null from `listFiles`, because a denied `stat` on shared storage surfaces as "does
-     * not exist" rather than as an error. So this states both facts and lets the reader
-     * tell which applies, instead of asserting a permission problem to someone who simply
-     * has not copied a file yet.
+     * NAMES ONLY THE FOLDER A PERSON CAN ACT ON. The first version listed both, and on a
+     * phone that rendered as eight lines of path in a status card, half of it a
+     * `/data/user/0/…` directory nothing but the app itself can write to. A fallback that
+     * exists for a future download step is not an instruction to anyone reading this.
+     *
+     * The stated cause is a fact about the BUILD, not a guess about the folder: without
+     * shared-storage access this cannot read that path whatever is in it. An unreadable
+     * folder and an absent one are otherwise indistinguishable from here — both are a null
+     * from `listFiles`, because a denied `stat` surfaces as "does not exist" rather than as
+     * an error — so no claim is made about whether a file is actually there.
      */
     private fun noModelReason(): String =
-        "no model installed — looked in ${sharedModelDir.path} (readable only with " +
-            "shared-storage access, which this build does not request) and in " +
-            "${modelDir.absolutePath}"
+        "no model loaded — this build cannot read ${sharedModelDir.path} " +
+            "(no shared-storage access)"
 
     // The engine is a process-wide singleton with a single-threaded native dispatcher
     // behind it. The mutex is not about that -- it is about load-then-use being two
