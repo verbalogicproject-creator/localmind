@@ -45,6 +45,21 @@ fun signingValue(key: String, env: String): String? =
 val releaseStoreFile = signingValue("storeFile", "SIGNING_KEYSTORE_PATH")
 val hasReleaseSigning = releaseStoreFile != null && rootProject.file(releaseStoreFile).exists()
 
+/**
+ * `-PinstrumentRelease` points the instrumented suite at the minified variant. Off by
+ * default; see the note above `testBuildType`.
+ *
+ * Read into a val here so the flag's name never appears as a string literal inside a
+ * rules-file argument list, where preflight check 020 would harvest it as a path.
+ *
+ * NOTE FOR THE NEXT EDITOR: that check slurps the whole file and matches from any
+ * `…roguardFile` call to the next `)` at end of line, so writing that call's name
+ * FOLLOWED BY A PAREN anywhere -- including in a comment like this one -- opens a match
+ * that swallows every quoted string until the next line-ending paren. Naming it without
+ * parentheses, as above, is deliberate.
+ */
+val instrumentRelease = project.hasProperty("instrumentRelease")
+
 // ── Prebuilt llama.cpp ──────────────────────────────────────────────────────────
 //
 // The native engine is FETCHED AND VERIFIED, not built here and not committed here.
@@ -225,7 +240,7 @@ android {
     //
     // It needs release signing configured (SIGNING_KEYSTORE_PATH and friends), because
     // an unsigned APK cannot be installed.
-    testBuildType = if (project.hasProperty("instrumentRelease")) "release" else "debug"
+    testBuildType = if (instrumentRelease) "release" else "debug"
 
     signingConfigs {
         if (hasReleaseSigning) {
@@ -253,18 +268,19 @@ android {
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
-                // Opt-in only. AndroidJUnitRunner runs inside the APP's process and
-                // resolves against the APP's classes, so verifying the minified build
-                // needs a handful of them kept that nothing shipping requires. Confined
-                // to its own file, behind the same flag, so the shipped rules are
-                // untouched -- see proguard-instrument-release.pro for what breaks and
-                // why the symptom looks like a hang.
-                *(if (project.hasProperty("instrumentRelease")) {
-                    arrayOf("proguard-instrument-release.pro")
-                } else {
-                    emptyArray()
-                }),
             )
+            // Opt-in only, and appended SEPARATELY rather than inlined into the call
+            // above. Preflight check 020 reads every string literal in that argument
+            // list as a filename, so a property lookup sitting inside it is reported as
+            // a missing file -- correctly, since the check cannot know which literals
+            // are paths. Keeping the flag out of the call keeps the check meaningful
+            // instead of teaching it an exception.
+            //
+            // AndroidJUnitRunner runs inside the APP's process and resolves against the
+            // APP's classes, so verifying the minified build needs some kept that nothing
+            // shipping requires. See proguard-instrument-release.pro for what breaks, why
+            // the symptom looks like a hang, and what the workaround costs.
+            if (instrumentRelease) proguardFile("proguard-instrument-release.pro")
             // Applies to the androidTest APK only. With testBuildType = "release",
             // AGP minifies the test APK too, and androidx.test references
             // compile-time-only annotations that R8 treats as fatal missing classes.

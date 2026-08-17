@@ -183,6 +183,6 @@ class CapabilityGateTest {
                 )
             }
         }
-        compose.onNodeWithText("EXAMPLE action (preview fixture)").assertIsDisplayed()
+        compose.onNodeWithText("EXAMPLE action (test fixture)").assertIsDisplayed()
     }
 }
