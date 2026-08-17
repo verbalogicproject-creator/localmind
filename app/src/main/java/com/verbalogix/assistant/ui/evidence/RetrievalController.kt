@@ -34,10 +34,17 @@ internal fun interface RetrievalSource {
  * device — and these are rules whose failures are invisible: a stale answer looks exactly
  * like a fresh one.
  *
- * THE QUESTION IS NEVER STORED. It is a parameter to [submit], it becomes request bytes,
- * and it is gone. Nothing in this class holds it, so nothing can write it to Room, to a
- * `SavedStateHandle`, to a crash record or to a log. The screen's copy lives in a
- * ViewModel field for the same reason — see [com.verbalogix.assistant.ui.experts.ExpertDetailViewModel].
+ * THE QUESTION IS NEVER PERSISTED. It is held in memory only — see `accepted` — for as long
+ * as the evidence it produced is on screen. Nothing writes it to Room, to a
+ * `SavedStateHandle`, to a crash record or to a log, and it dies with the process. The
+ * screen's copy lives in a ViewModel field for the same reason — see
+ * [com.verbalogix.assistant.ui.experts.ExpertDetailViewModel].
+ *
+ * This paragraph used to say the question was never held AT ALL, which stopped being true
+ * when `accepted` was added so a turn could bind the question that produced its evidence.
+ * Corrected rather than left standing: a comment claiming a stronger property than the code
+ * provides is worse than no comment, because it is what a reviewer checks instead of the
+ * code.
  *
  * NO REQUEST PER KEYSTROKE. There is no text-change entry point at all; [submit] is the
  * only way in, and it is wired to a button and to the keyboard's own submit action. Typing
@@ -71,6 +78,25 @@ internal class RetrievalController(
      * ticket is written on the caller's thread and read on the scope's.
      */
     private val issued = AtomicLong(0)
+
+    /**
+     * The question that produced the evidence currently on screen.
+     *
+     * NOT the text in the field. Those differ the moment a user edits the box without
+     * pressing the button again, and an assistant turn built from the edited text against
+     * the older evidence is a request whose `query_request` and `expected_evidence`
+     * describe different questions. The Foundry re-runs the query, gets a different packet,
+     * and reports `evidence-drift` -- blaming the mounted packs for a client-side
+     * inconsistency, which is exactly the confusion the drift check exists to avoid.
+     *
+     * Written only when a state is actually published, so it cannot describe an answer the
+     * screen is not showing.
+     */
+    @Volatile
+    private var accepted: String? = null
+
+    /** The question behind the displayed evidence, or null when none is displayed. */
+    val acceptedQuestion: String? get() = accepted
 
     /**
      * Ask, having been asked to.
@@ -110,15 +136,21 @@ internal class RetrievalController(
             // A null source result means no bearer was held. Reported as an expired
             // session rather than a refusal: there is a remedy, and it is pairing.
             val outcome = source.retrieve(question, target)
-            publish(
-                ticket,
-                outcome?.toRetrievalState(target) ?: RetrievalUiState.SessionExpired(null),
-            )
+            val state = outcome?.toRetrievalState(target) ?: RetrievalUiState.SessionExpired(null)
+            publish(ticket, state, question.takeIf { state is RetrievalUiState.Ready })
         }
     }
 
-    /** Publish only if nothing newer has been asked since. */
-    private fun publish(ticket: Long, state: RetrievalUiState) {
-        if (ticket == issued.get()) _state.value = state
+    /**
+     * Publish only if nothing newer has been asked since.
+     *
+     * [question] is recorded alongside the state so the two cannot drift apart: a gate
+     * failure clears it, and only a Ready state carries one.
+     */
+    private fun publish(ticket: Long, state: RetrievalUiState, question: String? = null) {
+        if (ticket == issued.get()) {
+            _state.value = state
+            accepted = question
+        }
     }
 }

@@ -117,6 +117,44 @@ the schemas alone do not say.
    deployment. Do not advertise them; do not add fallback behaviour.
 7. **Do not generate or label grounded answers.** Evidence remains evidence.
 
+## v0.1.0 RELEASE CANDIDATE — scope frozen 2026-08-17
+
+Frozen at the Stage 3D grounded-turn slice. No AesCoder, Builder Canvas, navigation,
+provider, or tool-authority additions enter v0.1.0.
+
+**Proven on the physical device:** pairing → catalog → detail → retrieval → LFM generation
+→ assistant-turn finalisation → receipt-backed grounded display. Observed with qwen-4b
+against the mounted Project Expert; citation closure passed server-side.
+
+**Version is a BUILD-TIME property, not a source constant.** `versionName`/`versionCode`
+default to `0.0.1-dev`/`1` and are supplied by `release.yml` from the tag, so freezing the
+scope required no source change and the tag alone determines the released identity.
+
+### Release blockers
+
+1. **No capability discovery for `assistant.turn.finalize`.** `capabilities_v3()` does not
+   list it and `capabilities/4.0` is unreachable over HTTP. Localmind gates the action on a
+   successful retrieval, which works and is an inference from a related capability rather
+   than a declaration. Waiting on the corrected contract and golden. TAG BLOCKED ON THIS.
+2. **The grounded-turn path has never run under R8.** Instrumented tests run against the
+   debug variant (`testBuildType` is deliberately not `release`), and the release rung is a
+   launch smoke: install, start, survive six seconds. Minification is on for release, so
+   serialization and the Harness decoders are unverified in the artifact users install.
+3. **No local release keystore.** `assembleRelease` here produces
+   `app-release-unsigned.apk`; CI signs from repository secrets.
+
+### Evidence needed before tagging
+
+- One grounded turn on a physical device from a SIGNED RELEASE build — the same flow
+  already proven on debug, repeated on the R8 artifact. This closes blocker 2 and is the
+  only evidence that cannot be produced in CI.
+- The corrected capability-discovery contract plus a server-emitted golden, landed the same
+  way every other id was: decoder, exact golden-byte test, request shaper and UI handling
+  in one change.
+- A green `ci.yml` and `emulator.yml` on the exact commit to be tagged.
+- The answer receipt opened once on the device, confirming the four provider digests render
+  full-length. It has only ever been asserted in tests.
+
 ## Holding
 
 Waiting on `canonical-assistant-turn` (schema + server-emitted golden). Until it lands:

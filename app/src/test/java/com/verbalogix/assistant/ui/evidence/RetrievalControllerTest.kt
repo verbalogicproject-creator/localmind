@@ -8,6 +8,7 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -174,6 +175,64 @@ class RetrievalControllerTest {
             "an answer to the previous question must not overwrite a later refusal",
             RetrievalUiState.InactiveRelease,
             controller.state.value,
+        )
+    }
+
+    // ── which question the evidence belongs to ──────────────────────────────
+
+    /**
+     * The question that produced the evidence, not the text in the field.
+     *
+     * A user retrieves for one question, edits the box, and drafts an answer without
+     * pressing Retrieve again. If the turn used the edited text, `query_request` and
+     * `expected_evidence` would describe different questions -- the Foundry re-runs the
+     * query, gets a different packet, and reports `evidence-drift`, blaming the mounted
+     * packs for a client-side mistake.
+     */
+    @Test
+    fun the_accepted_question_is_the_one_the_displayed_evidence_came_from() {
+        val controller = controller { _, _ -> goldenOutcome() }
+        controller.submit("  Knowledge  ", active)
+        assertTrue(controller.state.value is RetrievalUiState.Ready)
+        // Trimmed, exactly as sent.
+        assertEquals("Knowledge", controller.acceptedQuestion)
+    }
+
+    @Test
+    fun a_gate_failure_leaves_no_question_to_answer() {
+        // Nothing is displayed, so nothing may be drafted from it.
+        val controller = controller { _, _ -> goldenOutcome() }
+        controller.submit("Knowledge", active.copy(active = false))
+        assertNull(controller.acceptedQuestion)
+    }
+
+    @Test
+    fun a_declined_retrieval_leaves_no_question_to_answer() {
+        val controller = controller { _, _ ->
+            HarnessOutcome.Unsuccessful("abstained", "no-evidence")
+        }
+        controller.submit("Knowledge", active)
+        assertTrue(controller.state.value is RetrievalUiState.Declined)
+        assertNull(controller.acceptedQuestion)
+    }
+
+    @Test
+    fun an_overtaken_retrieval_does_not_leave_its_question_behind() {
+        val first = CompletableDeferred<HarnessOutcome<QueryResult>>()
+        val second = CompletableDeferred<HarnessOutcome<QueryResult>>()
+        val controller = controller { text, _ ->
+            if (text == "first") first.await() else second.await()
+        }
+        controller.submit("first", active)
+        controller.submit("second", active)
+
+        second.complete(goldenOutcome())
+        assertEquals("second", controller.acceptedQuestion)
+        first.complete(goldenOutcome())
+        assertEquals(
+            "the overtaken question must not replace the displayed one",
+            "second",
+            controller.acceptedQuestion,
         )
     }
 

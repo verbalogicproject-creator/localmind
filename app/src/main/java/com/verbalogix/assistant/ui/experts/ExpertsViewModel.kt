@@ -267,8 +267,14 @@ class ExpertDetailViewModel @Inject constructor(
      */
     fun draftAnswer(target: RetrievalTarget) {
         val current = retrievalState.value
+        // THE QUESTION THAT PRODUCED THE EVIDENCE, not whatever is in the field now. Those
+        // differ as soon as the box is edited without pressing Retrieve again, and a turn
+        // built from the edited text against the older evidence sends a `query_request` and
+        // an `expected_evidence` that describe different questions -- which the Foundry
+        // correctly reports as drift, blaming the mounted packs for a client-side mistake.
+        val question = retrieval.acceptedQuestion ?: return
         if (current is RetrievalUiState.Ready && current.evidence.items.isNotEmpty()) {
-            turn.submit(_queryText.value.trim(), target, current.evidence)
+            turn.submit(question, target, current.evidence)
         }
     }
 
