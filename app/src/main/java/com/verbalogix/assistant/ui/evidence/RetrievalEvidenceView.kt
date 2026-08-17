@@ -379,9 +379,33 @@ private fun Quotation(entry: EvidenceEntry) {
     // so the state follows the item rather than its position in the list.
     var expanded by rememberSaveable(entry.evidenceId) { mutableStateOf(false) }
 
+    // CUT ON A LINE BOUNDARY, AND SAY WHAT WAS ACTUALLY CUT.
+    //
+    // The first version took twelve lines and then applied a character cap to the result,
+    // which had two faults visible on a real pack. A single evidence item here is minified
+    // JSON, so the character cap bit first and severed a token mid-word --
+    // `"network_policy":"disabled","mo` -- which reads as corruption rather than as a fold.
+    // And the label still said "first 12 of N lines" when far fewer than twelve had been
+    // shown, so the one piece of text explaining the fold was false.
+    //
+    // Lines are now accumulated until either cap is reached, and the label describes what
+    // happened rather than what was intended.
+    val budgeted = buildList {
+        var used = 0
+        for (line in lines.take(PREVIEW_LINES)) {
+            if (isNotEmpty() && used + line.length + 1 > PREVIEW_CHARS) break
+            add(line)
+            used += line.length + 1
+        }
+    }
+    // One line longer than the whole budget is the only case that must still be cut inside
+    // a line, and it is named in characters because lines would be a meaningless unit.
+    val cutWithinLine = budgeted.size == 1 && budgeted[0].length > PREVIEW_CHARS
+
     val shown = when {
         !long || expanded -> entry.text
-        else -> lines.take(PREVIEW_LINES).joinToString("\n").take(PREVIEW_CHARS)
+        cutWithinLine -> budgeted[0].take(PREVIEW_CHARS)
+        else -> budgeted.joinToString("\n")
     }
 
     // Monospace and offset so it reads as material from elsewhere rather than as the app
@@ -398,7 +422,11 @@ private fun Quotation(entry: EvidenceEntry) {
 
     if (!expanded) {
         Text(
-            "first $PREVIEW_LINES of ${lines.size} lines",
+            if (cutWithinLine) {
+                "first $PREVIEW_CHARS of ${entry.text.length} characters, on one line"
+            } else {
+                "first ${budgeted.size} of ${lines.size} lines"
+            },
             style = MaterialTheme.typography.labelSmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(start = 8.dp),
@@ -409,10 +437,10 @@ private fun Quotation(entry: EvidenceEntry) {
         modifier = Modifier.minimumTouchTarget(),
     ) {
         Text(
-            if (expanded) {
-                "Show less of this quotation"
-            } else {
-                "Show the whole quotation (${lines.size} lines)"
+            when {
+                expanded -> "Show less of this quotation"
+                cutWithinLine -> "Show the whole quotation (${entry.text.length} characters)"
+                else -> "Show the whole quotation (${lines.size} lines)"
             },
         )
     }

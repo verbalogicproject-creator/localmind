@@ -102,8 +102,17 @@ object GroundedAnswerParser {
     /** A blank line. The contract's own separator, so segments and paragraphs agree. */
     private val PARAGRAPH = Regex("\n[ \t]*\n")
 
-    /** `[1]`, `[2,3]`, `[1, 2]` — one marker, one or more indices. */
-    private val MARKER = Regex("""\[\s*(\d+(?:\s*,\s*\d+)*)\s*]""")
+    /**
+     * `[1]`, `[2,3]`, `[1, 2]` — one marker, one or more indices.
+     *
+     * THE LEADING SPACE IS PART OF THE MATCH, and that detail is visible on screen. A model
+     * writes "…test-evidence-miner [5]." and stripping only the bracket leaves
+     * "…test-evidence-miner ." — a stray space before the full stop, in every sentence, in
+     * every answer. Taking the whitespace with the marker removes only what this parser
+     * introduced; the model's own spacing elsewhere is untouched, which is the narrowest
+     * edit that fixes it.
+     */
+    private val MARKER = Regex("""[ \t]*\[\s*(\d+(?:\s*,\s*\d+)*)\s*]""")
 
     private val SPACES = Regex("[ \t]+")
 

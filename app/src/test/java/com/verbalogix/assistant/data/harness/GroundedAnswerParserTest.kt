@@ -30,6 +30,27 @@ class GroundedAnswerParserTest {
 
     // ── the shapes a model actually produces ────────────────────────────────
 
+    /**
+     * The stray space, observed on a real answer.
+     *
+     * qwen-4b wrote "…test-evidence-miner [5]." and the screen showed
+     * "…test-evidence-miner ." in every sentence of every answer. Stripping the whitespace
+     * with the marker removes only what this parser introduced.
+     */
+    @Test
+    fun stripping_a_marker_leaves_no_space_before_the_punctuation_it_preceded() {
+        val segment = segments("Several components are deterministic-local [1]. And more [2].").single()
+        assertEquals("Several components are deterministic-local. And more.", segment.text)
+    }
+
+    @Test
+    fun a_marker_between_words_still_leaves_one_space() {
+        // The other half of the same rule: removing the space unconditionally would run two
+        // words together. Only the space BEFORE the marker goes with it.
+        val segment = segments("Packs are signed [1] and verifiable.").single()
+        assertEquals("Packs are signed and verifiable.", segment.text)
+    }
+
     @Test
     fun a_cited_paragraph_becomes_a_claim_with_the_marker_stripped() {
         val segment = segments("Packs are signed and verifiable. [1]").single()

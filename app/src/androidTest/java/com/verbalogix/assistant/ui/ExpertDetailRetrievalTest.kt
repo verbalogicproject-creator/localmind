@@ -164,6 +164,43 @@ class ExpertDetailRetrievalTest {
         ),
     )
 
+    /** One minified-JSON line, the shape that broke the first fold. */
+    private fun oneLongLine() = evidence().let { base ->
+        base.copy(
+            items = listOf(
+                base.items.first().copy(
+                    text = """{"format_version":"miner-role-registry/1.0","entries":[""" +
+                        (1..40).joinToString(",") {
+                            """{"role":"source-miner-$it","implementation_kind":"deterministic-local"}"""
+                        } + "]}",
+                ),
+            ),
+        )
+    }
+
+    private fun screenWithOneLongLine() {
+        submissions.clear()
+        compose.setContent {
+            DeviceConfigurationOverride(
+                DeviceConfigurationOverride.ForcedSize(DpSize(360.dp, 720.dp)),
+            ) {
+                LocalmindTheme(darkTheme = true) {
+                    var text by remember { mutableStateOf("") }
+                    var retrieval by remember {
+                        mutableStateOf<RetrievalUiState>(RetrievalUiState.Idle)
+                    }
+                    ExpertDetailScreen(
+                        state = ExpertDetailUiState.Ready(expert()),
+                        retrieval = retrieval,
+                        queryText = text,
+                        onQueryChange = { text = it },
+                        onSubmitQuery = { retrieval = RetrievalUiState.Ready(oneLongLine()) },
+                    )
+                }
+            }
+        }
+    }
+
     private val submissions = mutableListOf<RetrievalTarget>()
 
     /**
@@ -348,6 +385,26 @@ class ExpertDetailRetrievalTest {
             .performScrollTo().performClick()
         compose.onNodeWithText("line 240 of a quoted source file", substring = true)
             .performScrollTo().assertIsDisplayed()
+    }
+
+    /**
+     * ONE ENORMOUS LINE, which is what a real pack actually contained.
+     *
+     * An evidence item here was minified JSON on a single line. The first fold took twelve
+     * lines and then applied a character cap to the result, so it severed a token mid-word
+     * and still claimed "first 12 of N lines" -- the one piece of text explaining the fold
+     * was false. The label now describes what was actually cut.
+     */
+    @Test
+    fun a_single_enormous_line_is_described_in_characters_not_lines() {
+        screenWithOneLongLine()
+        compose.onNodeWithTag(TAG_EXPERT_QUERY_FIELD).performScrollTo()
+        compose.onNodeWithTag(TAG_EXPERT_QUERY_FIELD).performTextInput("memory")
+        compose.onNodeWithTag(TAG_EXPERT_QUERY_SUBMIT).performScrollTo().performClick()
+
+        compose.onNodeWithText("characters, on one line", substring = true)
+            .performScrollTo().assertIsDisplayed()
+        compose.onAllNodesWithText("of 1 lines", substring = true).assertCountEquals(0)
     }
 
     /**
