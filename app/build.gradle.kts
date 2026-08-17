@@ -253,6 +253,17 @@ android {
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
+                // Opt-in only. AndroidJUnitRunner runs inside the APP's process and
+                // resolves against the APP's classes, so verifying the minified build
+                // needs a handful of them kept that nothing shipping requires. Confined
+                // to its own file, behind the same flag, so the shipped rules are
+                // untouched -- see proguard-instrument-release.pro for what breaks and
+                // why the symptom looks like a hang.
+                *(if (project.hasProperty("instrumentRelease")) {
+                    arrayOf("proguard-instrument-release.pro")
+                } else {
+                    emptyArray()
+                }),
             )
             // Applies to the androidTest APK only. With testBuildType = "release",
             // AGP minifies the test APK too, and androidx.test references
