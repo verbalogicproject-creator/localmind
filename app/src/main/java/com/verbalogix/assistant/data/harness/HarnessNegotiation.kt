@@ -14,8 +14,24 @@ object HarnessNegotiation {
 
     const val HEADER = "Knowledge-Foundry-Accept-Schema"
 
-    /** The only value this client ever sends. */
+    /**
+     * The expert and retrieval surfaces.
+     *
+     * Named rather than defaulted, because there is now a second value and a route that
+     * picks the wrong one gets a document it cannot decode rather than an error saying so.
+     */
     const val ACCEPT_VALUE = "/3.0"
+
+    /**
+     * The assistant-turn surface, and ONLY that surface.
+     *
+     * `/4.0` is additive: Stage 3D says `/1.0`, `/2.0` and `/3.0` responses stay
+     * byte-compatible, and it adds one operation rather than re-versioning the existing
+     * ones. So this is not an upgrade to apply everywhere — sending it on
+     * `expert.catalog.list` would be requesting a version of a document the Foundry does
+     * not describe under `/4.0`. Exactly one route sends it.
+     */
+    const val ACCEPT_VALUE_TURN = "/4.0"
 
     /** What the Harness falls back to when nothing is sent. Never requested explicitly. */
     const val LEGACY_DEFAULT = "/2.0"

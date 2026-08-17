@@ -1,5 +1,6 @@
 package com.verbalogix.assistant.data.harness
 
+import com.verbalogix.assistant.data.harness.wire.AssistantTurnResult
 import com.verbalogix.assistant.data.harness.wire.CapabilitiesResult
 import com.verbalogix.assistant.data.harness.wire.ExpertCatalogResult
 import com.verbalogix.assistant.data.harness.wire.ExpertReleaseDetailResult
@@ -166,6 +167,116 @@ object HarnessDecoder {
                 }
             }
         }
+
+    /**
+     * Decode a finalised assistant turn.
+     *
+     * THE RECEIPT IS CHECKED AGAINST THE TURN, not merely displayed. A receipt is what
+     * makes "grounded" a claim someone else can verify, so one that disagrees with the body
+     * it accompanies is worse than none: it looks like proof. The turn is refused when they
+     * diverge.
+     *
+     * The nullable bindings are checked BY DISPOSITION rather than accepted as optional.
+     * `grounded` requires a model, a prompt template, an answer and all four provider
+     * digests; `abstained` and `refused` require their ABSENCE, because the Foundry forbids
+     * a provider having run at all in those cases. Accepting either shape for either
+     * disposition would let "the model was never called" and "the model was called and the
+     * record was lost" decode to the same value.
+     */
+    internal fun decodeAssistantTurn(raw: String): HarnessOutcome<AssistantTurnResult> =
+        decodeResult(
+            raw,
+            SchemaIds.OP_ASSISTANT_TURN_FINALIZE,
+            SchemaIds.ASSISTANT_TURN,
+            // Abstention and refusal are real turns with real receipts, not empty outcomes.
+            resultSurvivesDecline = true,
+        ) { element ->
+            STRICT.decodeFromJsonElement(AssistantTurnResult.serializer(), element)
+        }.also { outcome ->
+            if (outcome is HarnessOutcome.Decoded) {
+                validateTurn(outcome.value)?.let { return HarnessOutcome.Refused(it) }
+            }
+        }
+
+    private fun validateTurn(turn: AssistantTurnResult): HarnessRefusal? {
+        if (turn.disposition !in SchemaIds.TURN_DISPOSITIONS) {
+            return HarnessRefusal.UnknownDisposition(turn.disposition)
+        }
+        if (turn.evidence.answerability !in SchemaIds.ANSWERABILITY) {
+            return HarnessRefusal.Undecodable(
+                "unknown answerability \"${turn.evidence.answerability}\"",
+            )
+        }
+        val receipt = turn.receipt
+        if (receipt.schema != SchemaIds.ASSISTANT_TURN_RECEIPT) {
+            return HarnessRefusal.ResultSchemaMismatch(
+                receipt.schema, SchemaIds.ASSISTANT_TURN_RECEIPT,
+            )
+        }
+        // The receipt must describe THIS turn. Each of these is a binding the receipt exists
+        // to make; a mismatch means the two documents are about different events.
+        if (receipt.disposition != turn.disposition ||
+            receipt.packetId != turn.evidence.packetId ||
+            receipt.packetSha256 != turn.evidence.packetSha256 ||
+            receipt.mountRegistrySha256 != turn.evidence.mountRegistrySha256 ||
+            receipt.queryResultSha256 != turn.queryResultSha256
+        ) {
+            return HarnessRefusal.Undecodable(
+                "the receipt does not describe the turn it accompanies",
+            )
+        }
+        for (id in listOf(turn.turnId, receipt.receiptId, turn.evidence.packetId)) {
+            if (!isWellFormedIdentity(id)) return HarnessRefusal.MalformedIdentity(id)
+        }
+        for (id in receipt.citedEvidenceIds) {
+            if (!isWellFormedIdentity(id)) return HarnessRefusal.MalformedIdentity(id)
+        }
+
+        val grounded = turn.disposition == SchemaIds.TURN_GROUNDED
+        val bound = listOf(
+            turn.model, turn.promptTemplate, turn.answer,
+            receipt.providerObservationSha256, receipt.modelIdentitySha256,
+            receipt.promptTemplateSha256, receipt.answerSha256,
+        )
+        if (grounded && bound.any { it == null }) {
+            return HarnessRefusal.Undecodable(
+                "a grounded turn must name the model, template and answer it came from",
+            )
+        }
+        if (!grounded && bound.any { it != null }) {
+            return HarnessRefusal.Undecodable(
+                "a \"${turn.disposition}\" turn must carry no provider binding",
+            )
+        }
+
+        val answer = turn.answer ?: return null
+        if (answer.schema != SchemaIds.GROUNDED_ANSWER) {
+            return HarnessRefusal.ResultSchemaMismatch(answer.schema, SchemaIds.GROUNDED_ANSWER)
+        }
+        // Re-checked rather than trusted, because this is the exact property that makes a
+        // citation meaningful: the rendered text IS the segments, so no sentence can reach
+        // the screen outside a segment that carries its sources.
+        if (answer.text != answer.segments.joinToString("\n\n") { it.text }) {
+            return HarnessRefusal.Undecodable("the answer text does not close its segments")
+        }
+        val cited = sortedSetOf<String>()
+        for (segment in answer.segments) {
+            if (segment.kind !in SchemaIds.SEGMENT_KINDS) {
+                return HarnessRefusal.Undecodable("unknown segment kind \"${segment.kind}\"")
+            }
+            if (segment.kind == SchemaIds.SEGMENT_CLAIM && segment.evidenceIds.isEmpty()) {
+                return HarnessRefusal.Undecodable("a claim segment carries no evidence")
+            }
+            for (id in segment.evidenceIds) {
+                if (!isWellFormedIdentity(id)) return HarnessRefusal.MalformedIdentity(id)
+            }
+            cited += segment.evidenceIds
+        }
+        if (cited.toList() != receipt.citedEvidenceIds) {
+            return HarnessRefusal.Undecodable("the receipt's citations do not match the answer's")
+        }
+        return null
+    }
 
     private fun validatePacket(packet: EvidencePacket): HarnessRefusal? {
         if (packet.contentTreatment != SchemaIds.CONTENT_TREATMENT) {

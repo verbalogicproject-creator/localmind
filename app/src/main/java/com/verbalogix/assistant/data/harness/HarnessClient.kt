@@ -165,6 +165,34 @@ class HarnessClient @Inject constructor() {
         decodeOperation(response) { HarnessDecoder.decodeQueryResult(it) }
     }.getOrElse { transportRefusal(it) }
 
+    /**
+     * Finalise one assistant turn: `POST /v1/assistant/turns`, negotiated at `/4.0`.
+     *
+     * THE ONLY ROUTE THAT SENDS `/4.0`. Stage 3D is additive -- `/1.0`, `/2.0` and `/3.0`
+     * stay byte-compatible -- so negotiating it anywhere else would request a version of a
+     * document the Foundry does not describe under that number.
+     *
+     * The body is the caller's already-sealed request. This method deliberately does NOT
+     * build it: `request_sha256` covers the exact object, and a transport that reassembled
+     * it would be a second chance to differ from what was hashed.
+     *
+     * The existing `query:read` token authorises this. No new scope, no new authority: the
+     * operation is pure finalisation, and the Foundry calls no provider, no network and no
+     * tool to serve it.
+     */
+    internal suspend fun finalizeTurn(
+        accessToken: String,
+        turnRequest: kotlinx.serialization.json.JsonObject,
+        bind: String = DEFAULT_BIND,
+    ): HarnessOutcome<com.verbalogix.assistant.data.harness.wire.AssistantTurnResult> = runCatching {
+        val response = http.post("http://$bind${AssistantTurnRequest.PATH_ASSISTANT_TURN}") {
+            HarnessRequest.turnHeaders(bind, accessToken).forEach { (k, v) -> header(k, v) }
+            contentType(ContentType.Application.Json)
+            setBody(AssistantTurnRequest.body(turnRequest))
+        }
+        decodeOperation(response) { HarnessDecoder.decodeAssistantTurn(it) }
+    }.getOrElse { transportRefusal(it) }
+
     private suspend fun <T> operationGet(
         path: String,
         accessToken: String,

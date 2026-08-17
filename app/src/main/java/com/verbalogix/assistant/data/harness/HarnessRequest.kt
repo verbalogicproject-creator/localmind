@@ -175,11 +175,26 @@ object HarnessRequest {
      *   a release that permits only `public` is asking the Foundry for material this
      *   client was not told it may see.
      */
-    fun retrieveBody(
+    fun retrieveBody(text: String, packId: String, allowedSensitivities: List<String>): String =
+        CanonicalJson.text(
+            buildJsonObject { put("request", queryRequest(text, packId, allowedSensitivities)) },
+        )
+
+    /**
+     * The `query-request/2.0` object, separate from the body that carries it.
+     *
+     * EXPOSED BECAUSE THE ASSISTANT TURN EMBEDS THE SAME OBJECT. Stage 3D has the Foundry
+     * re-run the exact retrieval and compare digests, so a turn must carry the request that
+     * actually produced its evidence — not a rebuild that happens to look like it. Returning
+     * the object rather than its bytes gives both callers one construction, and the
+     * assistant-turn digest is computed over this subtree, so a difference between the two
+     * would surface as unexplained drift rather than as a diff anyone could read.
+     */
+    fun queryRequest(
         text: String,
         packId: String,
         allowedSensitivities: List<String>,
-    ): String {
+    ): JsonObject {
         require(isSendableQueryText(text)) {
             "query text must be 1..$MAX_QUERY_CHARS characters and free of control characters"
         }
@@ -196,7 +211,7 @@ object HarnessRequest {
             "allowed_sensitivities is a closed enum: $SENSITIVITIES"
         }
 
-        val request = buildJsonObject {
+        return buildJsonObject {
             // Keys alphabetical, matching the Foundry's own canonical form. The adapter
             // compares a key SET and does not care, but a stable order is what lets a test
             // assert the exact bytes -- and byte-exactness is the only way a request this
@@ -222,11 +237,6 @@ object HarnessRequest {
             put("schema", QUERY_REQUEST_SCHEMA)
             put("text", text)
         }
-
-        return HarnessDecoder.STRICT.encodeToString(
-            JsonObject.serializer(),
-            buildJsonObject { put("request", request) },
-        )
     }
 
     /**
@@ -241,6 +251,20 @@ object HarnessRequest {
         "Content-Type" to CONTENT_TYPE,
         // No Knowledge-Foundry-Accept-Schema: token routes are outside negotiation.
         // No Origin: forbidden outright.
+    )
+
+    /**
+     * Headers for the assistant-turn route, negotiated at `/4.0`.
+     *
+     * Separate from [operationHeaders] rather than a parameter on it, so that the one route
+     * using `/4.0` is greppable and no existing call site can acquire it by editing a
+     * default. Origin stays absent and Host still equals the bind, exactly as elsewhere.
+     */
+    fun turnHeaders(host: String, bearer: String): Map<String, String> = mapOf(
+        "Host" to host,
+        "Authorization" to "Bearer $bearer",
+        HarnessNegotiation.HEADER to HarnessNegotiation.ACCEPT_VALUE_TURN,
+        "Content-Type" to CONTENT_TYPE,
     )
 
     /** Headers for an operation on the `/3.0` path. */

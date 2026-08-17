@@ -34,6 +34,47 @@ object SchemaIds {
      */
     const val QUERY_RESULT = "knowledge-foundry-query-result/2.0"
 
+    // ── Stage 3D: the assistant turn ───────────────────────────────────────
+    //
+    // ADDITIVE, NOT AN UPGRADE. `/1.0`, `/2.0` and `/3.0` responses stay byte-compatible;
+    // `/4.0` adds one operation and a separate schema registry. Exactly one route
+    // negotiates it, and the existing surfaces are untouched.
+
+    const val OPERATION_RESPONSE_TURN = "knowledge-foundry-operation-response/4.0"
+    const val ASSISTANT_TURN = "knowledge-foundry-assistant-turn/1.0"
+    const val ASSISTANT_TURN_REQUEST = "knowledge-foundry-assistant-turn-request/1.0"
+    const val ASSISTANT_TURN_RECEIPT = "knowledge-foundry-assistant-turn-receipt/1.0"
+    const val GROUNDED_ANSWER = "knowledge-foundry-grounded-answer/1.0"
+    const val PROVIDER_OBSERVATION = "knowledge-foundry-provider-observation/1.0"
+
+    const val OP_ASSISTANT_TURN_FINALIZE = "assistant.turn.finalize"
+
+    /**
+     * What a finalised turn can be.
+     *
+     * `grounded` is the ONLY one that may be presented as an answer. `abstained` and
+     * `refused` are the Foundry declining to bind a provider observation at all, and in
+     * both cases it forbids one having been made.
+     */
+    const val TURN_GROUNDED = "grounded"
+    val TURN_DISPOSITIONS = setOf("grounded", "abstained", "refused")
+
+    /** A segment either asserts something and must cite, or hedges and need not. */
+    const val SEGMENT_CLAIM = "claim"
+    const val SEGMENT_UNCERTAINTY = "uncertainty"
+    val SEGMENT_KINDS = setOf(SEGMENT_CLAIM, SEGMENT_UNCERTAINTY)
+
+    /**
+     * Only `stop` may become a grounded answer.
+     *
+     * `length` and `timeout` mean the model was cut off mid-thought, `refusal` and `error`
+     * that it produced nothing usable. The Foundry refuses all four, and this client
+     * refuses them first so the failure is named locally rather than returned as an
+     * opaque `provider-observation-invalid`.
+     */
+    const val FINISH_STOP = "stop"
+    val FINISH_REASONS = setOf("stop", "length", "timeout", "refusal", "error")
+
     /** The Harness's own verdict on the evidence. This client never computes it. */
     val ANSWERABILITY = setOf("supported", "conflicted", "insufficient", "refused", "failed")
 

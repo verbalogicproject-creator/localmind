@@ -51,6 +51,17 @@ object SchemaNegotiation {
         // so. Admitted with its decoder and its golden in this same change, like every
         // entry above it.
         SchemaIds.QUERY_RESULT,
+        // Stage 3D. Five ids, one change, one rule: each arrives with its strict decoder,
+        // an exact golden-byte test, the request builder that produces it, and the UI that
+        // handles its dispositions. The assistant turn is the first payload this client
+        // both SENDS and reads, so the golden proves the encoder as well as the decoder --
+        // `CanonicalJsonTest` recomputes the Foundry's own digests rather than trusting a
+        // description of how they are formed.
+        SchemaIds.OPERATION_RESPONSE_TURN,
+        SchemaIds.ASSISTANT_TURN,
+        SchemaIds.ASSISTANT_TURN_RECEIPT,
+        SchemaIds.GROUNDED_ANSWER,
+        SchemaIds.PROVIDER_OBSERVATION,
     )
 
     /** The `schema` field's shape, checked before its value is compared. */

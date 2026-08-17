@@ -302,6 +302,60 @@ class LlamaClient @Inject constructor() {
         val receipt: Receipt? = null,
     )
 
+    /**
+     * What a grounded turn needs from the provider: the text, and how it ended.
+     *
+     * `finishReason` is the RAW value, mapped only into the contract's closed set. It is
+     * the difference between an answer and a fragment: `length` means the model was cut
+     * off mid-sentence, and the Foundry refuses to bind either that or `timeout`,
+     * `refusal` or `error` to a receipt. [Completion] reduces the same information to a
+     * `truncated` boolean, which is right for chat and loses exactly the distinction this
+     * needs.
+     */
+    data class TurnCompletion(
+        val text: String,
+        val finishReason: String,
+        /** As reported by the server, which is the model actually loaded. */
+        val modelId: String?,
+    )
+
+    /**
+     * One grounded turn against the provider.
+     *
+     * SEPARATE FROM [complete] ON PURPOSE, and not a refactor of it. Chat's behaviour is
+     * frozen for this slice: it trims, it merges reasoning, it turns an empty answer into a
+     * thrown explanation, and every one of those is right for a conversation and wrong for
+     * something that gets digested. This returns what the provider said and what it did,
+     * and makes no judgement about either.
+     *
+     * `think` is off. Reasoning tokens are not part of the answer, would not be covered by
+     * any citation, and on a small model consume the budget the answer needs.
+     */
+    suspend fun completeTurn(
+        baseUrl: String,
+        model: String,
+        messages: List<ChatMessage>,
+    ): TurnCompletion {
+        val response: ChatResponse = client.post("$baseUrl/v1/chat/completions") {
+            contentType(ContentType.Application.Json)
+            setBody(
+                ChatRequest(
+                    messages = messages,
+                    model = model.ifEmpty { null },
+                    chatTemplateKwargs = mapOf("enable_thinking" to false),
+                ),
+            )
+        }.body()
+        val choice = response.choices.firstOrNull() ?: error("server returned no choices")
+        return TurnCompletion(
+            text = choice.message.content,
+            // An unrecognised or absent reason becomes `error` rather than being assumed to
+            // be `stop`. Assuming success is how a truncated fragment acquires a receipt.
+            finishReason = choice.finishReason?.takeIf { it in TURN_FINISH_REASONS } ?: "error",
+            modelId = response.model,
+        )
+    }
+
     /** Send the conversation, get one reply. Throws on failure so the caller decides. */
     suspend fun complete(
         baseUrl: String,
@@ -352,4 +406,15 @@ class LlamaClient @Inject constructor() {
         )
     }
 
+    private companion object {
+        /**
+         * The contract's closed finish-reason set.
+         *
+         * OpenAI-compatible servers also emit `tool_calls`, `content_filter` and others.
+         * None is in `provider-observation/1.0`, so anything outside this set becomes
+         * `error` — which is refused — rather than being passed through to fail a schema
+         * check further along with a less useful message.
+         */
+        val TURN_FINISH_REASONS = setOf("stop", "length", "timeout", "refusal", "error")
+    }
 }

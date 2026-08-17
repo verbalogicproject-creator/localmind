@@ -35,6 +35,8 @@ import androidx.compose.ui.unit.dp
 import com.verbalogix.assistant.data.capability.Capabilities
 import com.verbalogix.assistant.data.capability.CapabilityState
 import com.verbalogix.assistant.ui.components.AmberPanel
+import com.verbalogix.assistant.ui.evidence.GroundedTurnUiState
+import com.verbalogix.assistant.ui.evidence.GroundedTurnView
 import com.verbalogix.assistant.ui.evidence.RetrievalEvidenceView
 import com.verbalogix.assistant.ui.evidence.RetrievalTarget
 import com.verbalogix.assistant.ui.evidence.RetrievalUiState
@@ -51,6 +53,7 @@ const val TAG_EXPERT_DETAIL = "expert-detail"
 const val TAG_TECHNICAL_DISCLOSURE = "expert-technical-disclosure"
 const val TAG_EXPERT_QUERY_FIELD = "expert-query-field"
 const val TAG_EXPERT_QUERY_SUBMIT = "expert-query-submit"
+const val TAG_EXPERT_ANSWER_SUBMIT = "expert-answer-submit"
 
 /**
  * One release, in full.
@@ -84,9 +87,11 @@ fun ExpertDetailScreen(
     state: ExpertDetailUiState,
     onBack: () -> Unit = {},
     retrieval: RetrievalUiState = RetrievalUiState.Idle,
+    turn: GroundedTurnUiState = GroundedTurnUiState.Idle,
     queryText: String = "",
     onQueryChange: (String) -> Unit = {},
     onSubmitQuery: (RetrievalTarget) -> Unit = {},
+    onDraftAnswer: (RetrievalTarget) -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     Surface(
@@ -134,9 +139,11 @@ fun ExpertDetailScreen(
                 is ExpertDetailUiState.Ready -> ReadyDetail(
                     expert = state.expert,
                     retrieval = retrieval,
+                    turn = turn,
                     queryText = queryText,
                     onQueryChange = onQueryChange,
                     onSubmitQuery = onSubmitQuery,
+                    onDraftAnswer = onDraftAnswer,
                 )
             }
         }
@@ -147,9 +154,11 @@ fun ExpertDetailScreen(
 private fun ReadyDetail(
     expert: ExpertDetail,
     retrieval: RetrievalUiState,
+    turn: GroundedTurnUiState,
     queryText: String,
     onQueryChange: (String) -> Unit,
     onSubmitQuery: (RetrievalTarget) -> Unit,
+    onDraftAnswer: (RetrievalTarget) -> Unit,
 ) {
     val summary = expert.summary
 
@@ -196,9 +205,11 @@ private fun ReadyDetail(
     SearchThisExpert(
         target = expert.retrievalTarget(),
         retrieval = retrieval,
+        turn = turn,
         queryText = queryText,
         onQueryChange = onQueryChange,
         onSubmitQuery = onSubmitQuery,
+        onDraftAnswer = onDraftAnswer,
     )
 
     if (expert.capabilities.isNotEmpty()) {
@@ -299,9 +310,11 @@ private fun ReadyDetail(
 private fun SearchThisExpert(
     target: RetrievalTarget,
     retrieval: RetrievalUiState,
+    turn: GroundedTurnUiState,
     queryText: String,
     onQueryChange: (String) -> Unit,
     onSubmitQuery: (RetrievalTarget) -> Unit,
+    onDraftAnswer: (RetrievalTarget) -> Unit,
 ) {
     Section("Search this expert") {
         if (!target.active) {
@@ -356,6 +369,31 @@ private fun SearchThisExpert(
         )
 
         RetrievalEvidenceView(state = retrieval)
+
+        // OFFERED ONLY OVER EVIDENCE THAT EXISTS. The action appears once a retrieval has
+        // succeeded, because a grounded answer is defined as one derived from a specific
+        // evidence packet -- there is nothing to ground on before that, and a button that
+        // could be pressed first would imply otherwise.
+        if (retrieval is RetrievalUiState.Ready && retrieval.evidence.items.isNotEmpty()) {
+            Button(
+                onClick = { onDraftAnswer(target) },
+                enabled = turn !is GroundedTurnUiState.Generating &&
+                    turn !is GroundedTurnUiState.Finalizing,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .minimumTouchTarget()
+                    .testTag(TAG_EXPERT_ANSWER_SUBMIT),
+            ) { Text("Draft a grounded answer") }
+
+            Text(
+                "The model reads only the evidence above. Knowledge Foundry checks every " +
+                    "claim against it before the answer is shown as grounded.",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        GroundedTurnView(state = turn)
     }
 }
 

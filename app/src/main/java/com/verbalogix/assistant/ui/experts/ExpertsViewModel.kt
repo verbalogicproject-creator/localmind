@@ -5,9 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.verbalogix.assistant.data.capability.Capabilities
 import com.verbalogix.assistant.data.capability.CapabilitySource
+import com.verbalogix.assistant.data.LlamaClient
+import com.verbalogix.assistant.data.ProviderRepository
 import com.verbalogix.assistant.data.capability.CapabilityState
 import com.verbalogix.assistant.data.harness.HarnessClient
 import com.verbalogix.assistant.data.harness.HarnessSessionRepository
+import com.verbalogix.assistant.ui.evidence.GroundedTurnController
+import com.verbalogix.assistant.ui.evidence.GroundedTurnUiState
 import com.verbalogix.assistant.ui.evidence.RetrievalController
 import com.verbalogix.assistant.ui.evidence.RetrievalTarget
 import com.verbalogix.assistant.ui.evidence.RetrievalUiState
@@ -110,6 +114,8 @@ class ExpertDetailViewModel @Inject constructor(
     capabilities: CapabilitySource,
     private val session: HarnessSessionRepository,
     private val client: HarnessClient,
+    private val providers: ProviderRepository,
+    private val llama: LlamaClient,
 ) : ViewModel() {
 
     /**
@@ -205,7 +211,13 @@ class ExpertDetailViewModel @Inject constructor(
      * is correlated against the release the USER was looking at when they submitted --
      * not against whatever the flow happens to hold when the reply lands.
      */
-    fun submitQuery(target: RetrievalTarget) = retrieval.submit(_queryText.value, target)
+    fun submitQuery(target: RetrievalTarget) {
+        // A NEW QUESTION CLEARS THE OLD ANSWER. Leaving it on screen beneath fresh evidence
+        // would show an answer receipted against a packet that is no longer the one above
+        // it -- which is the exact confusion the receipt exists to prevent.
+        turn.reset()
+        retrieval.submit(_queryText.value, target)
+    }
 
     /**
      * What the retrieval surface shows, gated on `query.retrieve` being declared.
@@ -224,6 +236,41 @@ class ExpertDetailViewModel @Inject constructor(
                 CapabilityState.Available -> current
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), RetrievalUiState.Idle)
+
+    // ── drafting a grounded answer ──────────────────────────────────────────
+
+    /**
+     * The turn: Localmind calls the model, the Foundry decides whether it is grounded.
+     *
+     * PROVIDER OWNERSHIP IS UNCHANGED. Localmind calls llama-swap through the same
+     * [LlamaClient] chat uses; the Foundry never calls a provider, and nothing here asks it
+     * to. The two lambdas are the only places those two systems are touched, which is what
+     * makes the ordering rules testable without either of them.
+     */
+    private val turn = GroundedTurnController(
+        scope = viewModelScope,
+        generate = { messages ->
+            val provider = providers.active()
+            llama.completeTurn(provider.baseUrl, provider.model, messages)
+        },
+        finalize = { request -> session.bearer()?.let { client.finalizeTurn(it, request) } },
+    )
+
+    val turnState: StateFlow<GroundedTurnUiState> = turn.state
+
+    /**
+     * Draft an answer from the evidence currently on screen.
+     *
+     * Refuses unless a retrieval has SUCCEEDED and returned items. "Grounded" is defined as
+     * derived from a specific evidence packet, so there is nothing to ground on before
+     * that — and the screen does not offer the action either.
+     */
+    fun draftAnswer(target: RetrievalTarget) {
+        val current = retrievalState.value
+        if (current is RetrievalUiState.Ready && current.evidence.items.isNotEmpty()) {
+            turn.submit(_queryText.value.trim(), target, current.evidence)
+        }
+    }
 
     /** The malformed-argument case, distinguished from "valid but unknown". */
     val argumentsValid: Boolean = releaseId != null

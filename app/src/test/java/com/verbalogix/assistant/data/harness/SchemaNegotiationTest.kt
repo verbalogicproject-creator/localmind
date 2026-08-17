@@ -42,8 +42,35 @@ class SchemaNegotiationTest {
                 // names query-result-2.0. Retrieval was specified before the expert
                 // surfaces and did not need re-versioning.
                 "knowledge-foundry-query-result/2.0",
+                // Stage 3D, admitted together with their strict decoders, an exact
+                // golden-byte test on the request, and the UI that handles every
+                // disposition. `/4.0` is ADDITIVE: the five ids above still decode, and
+                // exactly one route negotiates `/4.0`.
+                //
+                // This id set is also the client's half of the assistant-turn contract in
+                // the other direction -- the request golden proves the ENCODER, which is
+                // the half that fails silently.
+                "knowledge-foundry-operation-response/4.0",
+                "knowledge-foundry-assistant-turn/1.0",
+                "knowledge-foundry-assistant-turn-receipt/1.0",
+                "knowledge-foundry-grounded-answer/1.0",
+                "knowledge-foundry-provider-observation/1.0",
             ),
             SchemaNegotiation.ACCEPTED,
+        )
+    }
+
+    /**
+     * The assistant-turn REQUEST schema is never in the accepted set.
+     *
+     * This set governs documents this client READS. `assistant-turn-request/1.0` is one it
+     * writes and never receives, so admitting it would blur the direction of the whole
+     * negotiation — and would suggest a decoder exists for something no server sends.
+     */
+    @Test
+    fun a_schema_this_client_only_sends_is_not_admitted() {
+        assertTrue(
+            "knowledge-foundry-assistant-turn-request/1.0" !in SchemaNegotiation.ACCEPTED,
         )
     }
 
