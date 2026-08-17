@@ -141,9 +141,18 @@ class ExpertDetailGroundedTurnTest {
             "effect authority.",
     )
 
+    /**
+     * The answer text is DELIBERATELY NOT the evidence text.
+     *
+     * The first version reused the quotation verbatim, and both nodes then matched the same
+     * assertion -- the test failed on ambiguity rather than on anything about the screen.
+     * It is also the wrong fixture: a model paraphrases, so the evidence card and the answer
+     * segment carry different words, and a test whose two halves are indistinguishable
+     * could not tell which one it was looking at.
+     */
     private fun grounded(answerability: String = "supported") = GroundedTurnUiState.Grounded(
         segments = listOf(
-            AnswerSegmentView("claim", "A pack is signed and verifiable.", listOf(1)),
+            AnswerSegmentView("claim", "Every pack carries a checkable signature.", listOf(1)),
             AnswerSegmentView("uncertainty", "The evidence does not say when.", emptyList()),
         ),
         modelId = "lfm-8b",
@@ -194,7 +203,8 @@ class ExpertDetailGroundedTurnTest {
     @Test
     fun a_grounded_answer_shows_its_segments_with_per_segment_citations() {
         screen(turn = grounded())
-        compose.onNodeWithText("A pack is signed and verifiable.", substring = true)
+        // The ANSWER's words, which differ from the evidence quotation above it.
+        compose.onNodeWithText("Every pack carries a checkable signature.")
             .performScrollTo().assertIsDisplayed()
         // The citation sits ON the sentence, not in a footer. A list of sources under a
         // whole answer says "these were involved somewhere"; this says which claim rests on
