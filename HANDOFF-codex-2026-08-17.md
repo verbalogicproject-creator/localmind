@@ -38,30 +38,44 @@ cd /root/projects/localmind
 | SDK | `/root/android-sdk`, build-tools `36.0.0` |
 | adb | `/root/android-sdk/platform-tools/adb` (has mDNS; the Termux one does not) |
 
-### ⚠ Local release builds are structurally broken on this machine
+### ⚠ aapt2 version — read this before trusting any local release APK
 
-`~/.gradle/gradle.properties` contains:
+`~/.gradle/gradle.properties` overrides aapt2, because AGP downloads an x86_64 ELF from
+Maven and this device is aarch64. **Which aarch64 build it points at matters, and this cost
+an afternoon:**
 
 ```
-android.aapt2FromMavenOverride=/root/android-sdk/build-tools/36.0.0/aapt2
+# was: /root/android-sdk/build-tools/36.0.0/aapt2   aapt2 2.19-20250916.230514   BROKEN
+# now: /data/data/com.termux/files/usr/bin/aapt2    aapt2 2.20-android-16.0.0_r4  WORKS
+android.aapt2FromMavenOverride=/data/data/com.termux/files/usr/bin/aapt2
 ```
 
-Required, because AGP ships aapt2 as an x86_64 ELF and this device is aarch64. But on the
-**release** path (`isMinifyEnabled` + `isShrinkResources`) that combination silently drops
-the resource container: the packaged APK comes out with dex, native libs and assets but
-**no `AndroidManifest.xml` and no `resources.arsc`**. The platform rejects it with
-`INSTALL_PARSE_FAILED_UNEXPECTED_EXCEPTION`.
+Under **2.19** the debug path is fine, but on the **release** path (`isMinifyEnabled` +
+`isShrinkResources`) the packaged APK comes out with dex, native libs and assets and **no
+`AndroidManifest.xml`, no `resources.arsc`**. It is a structurally valid zip that no tool
+can read — `aapt2` says *could not identify format of APK*, `apksigner` says *Missing
+AndroidManifest.xml*, and the device rejects it as
+`INSTALL_PARSE_FAILED_UNEXPECTED_EXCEPTION`, an error naming the manifest and so reading
+like an app bug rather than a toolchain one.
 
-- The **debug** path is unaffected.
-- **CI is unaffected** (x86_64, AGP's own aapt2) — its release APK installs and launches.
-- **Any local claim about release-build health on this machine is worth little.** An earlier
-  report line ("assembles cleanly, 40 native libs, every `DT_NEEDED` resolves") was made
-  against an APK that was missing its resources entirely. Treat CI as authoritative.
+The shrunk resource archive AGP produces is **correct** even under 2.19
+(`app/build/intermediates/shrunk_resources_binary_format/release/**/*.ap_` holds both
+files); only the final merge loses them. Silent, late, and looks like your fault.
 
-Workaround, if you need an installable local release APK — merge the (correct) shrunk
-resource archive back in, align, re-sign. Scripted at
-`<scratch>/r8-pipeline.sh`; the archive is at
-`app/build/intermediates/shrunk_resources_binary_format/release/**/*.ap_`.
+**Fixed as of this session** — `pkg install aapt2` in Termux, then point the override at it.
+Verified: release APK 140 entries with manifest and `resources.arsc`, parses, signs;
+debug and androidTest APKs unaffected.
+
+- **It was a VERSION bug, not an architecture one.** Both binaries are aarch64. An earlier
+  version of this document blamed the architecture; that was wrong.
+- **CI never hit this** (x86_64, AGP's own aapt2), so the shipped artifact was never at risk.
+- **Historical caveat:** an earlier report line — *"assembles cleanly, 40 native libs, every
+  `DT_NEEDED` resolves"* — was measured on an APK that was missing its resources entirely.
+  That check only inspected native libraries. Discount any local release-build claim made
+  before this fix.
+
+If `AndroidManifest.xml` ever goes missing from a release APK again, **check the aapt2
+version first.** `<scratch>/r8-clean.sh` hard-fails with that message rather than proceeding.
 
 ---
 
@@ -233,19 +247,32 @@ resolves against the app's. The file now keeps `kotlin.**` and `kotlinx.coroutin
 - ✅ The crash diagnosis, from a real dropbox stack.
 - ✅ **R8 does not break the app.** The minified build launches cold in **256 ms** with
   `MainActivity` as `topResumedActivity`.
-- ✅ The minified APK builds, repairs, aligns and signs (148 entries, manifest + arsc present).
+- ✅ The minified APK builds and signs correctly through AGP alone — 148 entries, manifest
+  and `resources.arsc` present, 26.4 MB. **No APK surgery is involved any more.** An earlier
+  pass merged resources back in by hand to work around aapt2 2.19; that workaround
+  (`<scratch>/r8-pipeline.sh`) is obsolete and its output would be weaker evidence than
+  AGP's own.
 - ❌ **The suite has never completed against the minified build.** Every attempt died on the
-  adb link, not on a test. This is the one open thread.
+  adb link, never on a test. This is the one open thread.
 
-To finish it:
+To finish it — one command, then connect a device within 25 minutes:
 
 ```bash
-bash <scratch>/r8-pipeline.sh     # build → repair → sign → install → instrument
+bash <scratch>/r8-clean.sh    # build → install → instrument, no surgery
 ```
 
-Needs a connected device and the throwaway keystore at
-`<scratch>/localmind-r8-test.jks` (pass `r8testing`, alias `localmind`) — **regenerate it,
-it is not committed and must never be.**
+It needs the throwaway keystore at `<scratch>/localmind-r8-test.jks` (store/key pass
+`r8testing`, alias `localmind`). **Not committed, and must never be — regenerate it:**
+
+```bash
+keytool -genkeypair -keystore <scratch>/localmind-r8-test.jks \
+  -storepass r8testing -keypass r8testing -alias localmind \
+  -keyalg RSA -keysize 2048 -validity 365 \
+  -dname "CN=Localmind R8 Verification, O=Verbalogix, C=SE"
+```
+
+Signing key is irrelevant to what is being tested — R8's output does not depend on it — but
+an unsigned APK cannot be installed, and `signingConfig` is `null` without one.
 
 ---
 
