@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import com.verbalogix.assistant.data.capability.Capabilities
 import com.verbalogix.assistant.data.capability.CapabilityState
 import com.verbalogix.assistant.ui.components.AmberPanel
+import com.verbalogix.assistant.ui.evidence.GroundedDrafting
 import com.verbalogix.assistant.ui.evidence.GroundedTurnUiState
 import com.verbalogix.assistant.ui.evidence.GroundedTurnView
 import com.verbalogix.assistant.ui.evidence.RetrievalEvidenceView
@@ -54,6 +55,7 @@ const val TAG_TECHNICAL_DISCLOSURE = "expert-technical-disclosure"
 const val TAG_EXPERT_QUERY_FIELD = "expert-query-field"
 const val TAG_EXPERT_QUERY_SUBMIT = "expert-query-submit"
 const val TAG_EXPERT_ANSWER_SUBMIT = "expert-answer-submit"
+const val TAG_DRAFTING_UNAVAILABLE = "expert-drafting-unavailable"
 
 /**
  * One release, in full.
@@ -88,6 +90,7 @@ fun ExpertDetailScreen(
     onBack: () -> Unit = {},
     retrieval: RetrievalUiState = RetrievalUiState.Idle,
     turn: GroundedTurnUiState = GroundedTurnUiState.Idle,
+    drafting: GroundedDrafting = GroundedDrafting.Undiscovered,
     queryText: String = "",
     onQueryChange: (String) -> Unit = {},
     onSubmitQuery: (RetrievalTarget) -> Unit = {},
@@ -143,6 +146,7 @@ fun ExpertDetailScreen(
                     queryText = queryText,
                     onQueryChange = onQueryChange,
                     onSubmitQuery = onSubmitQuery,
+                    drafting = drafting,
                     onDraftAnswer = onDraftAnswer,
                 )
             }
@@ -155,6 +159,7 @@ private fun ReadyDetail(
     expert: ExpertDetail,
     retrieval: RetrievalUiState,
     turn: GroundedTurnUiState,
+    drafting: GroundedDrafting,
     queryText: String,
     onQueryChange: (String) -> Unit,
     onSubmitQuery: (RetrievalTarget) -> Unit,
@@ -209,6 +214,7 @@ private fun ReadyDetail(
         queryText = queryText,
         onQueryChange = onQueryChange,
         onSubmitQuery = onSubmitQuery,
+        drafting = drafting,
         onDraftAnswer = onDraftAnswer,
     )
 
@@ -311,6 +317,7 @@ private fun SearchThisExpert(
     target: RetrievalTarget,
     retrieval: RetrievalUiState,
     turn: GroundedTurnUiState,
+    drafting: GroundedDrafting,
     queryText: String,
     onQueryChange: (String) -> Unit,
     onSubmitQuery: (RetrievalTarget) -> Unit,
@@ -373,11 +380,38 @@ private fun SearchThisExpert(
 
         RetrievalEvidenceView(state = retrieval)
 
-        // OFFERED ONLY OVER EVIDENCE THAT EXISTS. The action appears once a retrieval has
-        // succeeded, because a grounded answer is defined as one derived from a specific
-        // evidence packet -- there is nothing to ground on before that, and a button that
-        // could be pressed first would imply otherwise.
-        if (retrieval is RetrievalUiState.Ready && retrieval.evidence.items.isNotEmpty()) {
+        // TWO CONDITIONS, AND THEY ARE DIFFERENT QUESTIONS.
+        //
+        // "Is there evidence to ground on?" -- a grounded answer is by definition derived
+        // from a specific evidence packet, so before a retrieval succeeds there is nothing
+        // to derive from and a pressable button would imply otherwise.
+        //
+        // "Does this server offer the operation?" -- asked of the server and never inferred
+        // from the first. Retrieval succeeding says nothing about `assistant.turn.finalize`
+        // being offered, and the Foundry states plainly that absence means hide or disable
+        // rather than reason across. Under the old gate a withdrawn operation appeared as a
+        // working button and failed when pressed, looking like the model's fault.
+        //
+        // Undiscovered is treated as not-offered on purpose: during the window before an
+        // answer arrives, the honest thing to show is nothing.
+        if (retrieval is RetrievalUiState.Ready &&
+            retrieval.evidence.items.isNotEmpty() &&
+            drafting is GroundedDrafting.NotOffered
+        ) {
+            // Stated rather than silent. An action that vanishes with no explanation reads
+            // as a missing feature; this says the server declined, so the reader knows the
+            // difference between "this build cannot" and "this deployment does not".
+            Text(
+                drafting.reason,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag(TAG_DRAFTING_UNAVAILABLE),
+            )
+        }
+        if (retrieval is RetrievalUiState.Ready &&
+            retrieval.evidence.items.isNotEmpty() &&
+            drafting is GroundedDrafting.Offered
+        ) {
             Button(
                 onClick = { onDraftAnswer(target) },
                 enabled = turn !is GroundedTurnUiState.Generating &&

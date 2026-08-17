@@ -1,5 +1,6 @@
 package com.verbalogix.assistant.data.harness
 
+import com.verbalogix.assistant.data.harness.wire.AssistantCapabilities
 import com.verbalogix.assistant.data.harness.wire.AssistantTurnResult
 import com.verbalogix.assistant.data.harness.wire.CapabilitiesResult
 import com.verbalogix.assistant.data.harness.wire.ExpertCatalogResult
@@ -10,6 +11,8 @@ import com.verbalogix.assistant.data.harness.wire.QueryResult
 import com.verbalogix.assistant.data.harness.wire.OperationResponseEnvelope
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
 
 /**
@@ -167,6 +170,111 @@ object HarnessDecoder {
                 }
             }
         }
+
+    /**
+     * Decode `capabilities/4.0` — is the assistant turn offered by THIS server?
+     *
+     * NOT VIA [decodeResult], and that is the shape of the whole function. Every other
+     * document this client reads arrives inside an `operation-response` envelope, so the
+     * shared path unwraps `result`, checks the operation id and the disposition, and hands
+     * over the body. This document has no envelope: it is flat, `schema` sits at the top
+     * level, and there is no `result` to unwrap. Routing it through the shared path fails
+     * on a missing field and reports the wrong cause.
+     *
+     * WHAT IS CHECKED, AND WHY EACH MATTERS:
+     *
+     *  - the schema id, through the same negotiation as everything else;
+     *  - `runtime_contract` against [SchemaIds.RUNTIME_CONTRACT_TURN] — `0.3.3`, NOT the
+     *    `0.3.2` that `/3.0` pins. They disagree deliberately;
+     *  - `operation`, because a document describing a DIFFERENT capability is not evidence
+     *    about this one. A client that ignored the name would enable grounded drafting on
+     *    the strength of an unrelated declaration;
+     *  - `response_schema`, which is the server stating which decoder its turn replies will
+     *    need. A mismatch means the turn we would send is one whose answer we could not
+     *    read;
+     *  - the three effect flags, which must all be FALSE. They are the server stating that
+     *    discovering this capability grants no authority to run a provider, call a tool, or
+     *    persist anything. A `true` is not a richer capability — it is a contract this
+     *    client was not written against, and it is refused rather than ignored;
+     *  - `capabilities_sha256`, recomputed.
+     *
+     * THE SELF-DIGEST IS VERIFIED, NOT DISPLAYED. It seals every other field under the same
+     * canonical rules as Stage 3D, so recomputing it turns "these fields parsed" into "this
+     * document is intact and was not assembled from parts". It costs microseconds and it is
+     * the only check here that a well-formed forgery of the individual fields would not
+     * survive.
+     */
+    internal fun decodeAssistantCapabilities(raw: String): HarnessOutcome<AssistantCapabilities> {
+        val root = runCatching { STRICT.parseToJsonElement(raw).jsonObject }
+            .getOrElse {
+                return HarnessOutcome.Refused(HarnessRefusal.Undecodable("not a JSON object"))
+            }
+
+        val declared = root["schema"]?.jsonPrimitive?.contentOrNull
+        when (val verdict = SchemaNegotiation.negotiate(declared)) {
+            is SchemaVerdict.Accepted ->
+                if (declared != SchemaIds.CAPABILITIES_TURN) {
+                    // Readable, and not what was asked for: a routing bug rather than a
+                    // version one, and named as such so the fix is in the right file.
+                    return HarnessOutcome.Refused(
+                        HarnessRefusal.ResultSchemaMismatch(declared, SchemaIds.CAPABILITIES_TURN),
+                    )
+                }
+            else -> return HarnessOutcome.Refused(HarnessRefusal.Schema(verdict))
+        }
+
+        val caps = runCatching {
+            STRICT.decodeFromJsonElement(AssistantCapabilities.serializer(), root)
+        }.getOrElse {
+            return HarnessOutcome.Refused(
+                HarnessRefusal.Undecodable(it.message ?: "capabilities/4.0 did not decode"),
+            )
+        }
+
+        if (caps.runtimeContract != SchemaIds.RUNTIME_CONTRACT_TURN) {
+            return HarnessOutcome.Refused(
+                HarnessRefusal.RuntimeContract(
+                    caps.runtimeContract, SchemaIds.RUNTIME_CONTRACT_TURN,
+                ),
+            )
+        }
+        if (caps.operation != SchemaIds.OP_ASSISTANT_TURN_FINALIZE) {
+            return HarnessOutcome.Refused(
+                HarnessRefusal.OperationMismatch(
+                    caps.operation, SchemaIds.OP_ASSISTANT_TURN_FINALIZE,
+                ),
+            )
+        }
+        if (caps.responseSchema != SchemaIds.OPERATION_RESPONSE_TURN) {
+            return HarnessOutcome.Refused(
+                HarnessRefusal.ResultSchemaMismatch(
+                    caps.responseSchema, SchemaIds.OPERATION_RESPONSE_TURN,
+                ),
+            )
+        }
+        if (caps.providerExecution || caps.toolExecution || caps.persistence) {
+            return HarnessOutcome.Refused(
+                HarnessRefusal.Undecodable(
+                    "capabilities/4.0 declares an effect this client is not written for " +
+                        "(provider_execution=${caps.providerExecution}, " +
+                        "tool_execution=${caps.toolExecution}, " +
+                        "persistence=${caps.persistence})",
+                ),
+            )
+        }
+
+        val recomputed = CanonicalJson.selfDigest(root, "capabilities_sha256")
+        if (recomputed != caps.capabilitiesSha256) {
+            return HarnessOutcome.Refused(
+                HarnessRefusal.Undecodable(
+                    "capabilities_sha256 does not seal this document " +
+                        "(declared ${caps.capabilitiesSha256.take(12)}…, " +
+                        "computed ${recomputed.take(12)}…)",
+                ),
+            )
+        }
+        return HarnessOutcome.Decoded(caps)
+    }
 
     /**
      * Decode a finalised assistant turn.

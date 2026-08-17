@@ -58,6 +58,12 @@ object SchemaNegotiation {
         // `CanonicalJsonTest` recomputes the Foundry's own digests rather than trusting a
         // description of how they are formed.
         SchemaIds.OPERATION_RESPONSE_TURN,
+        // Admitted in its own change, on the same rule as every id above it: a strict
+        // decoder, a server-emitted golden, the request that produces it, and the UI that
+        // acts on it. Its shape was READ from those bytes -- flat, no envelope, one
+        // singular `operation` -- and every one of those three facts contradicts what the
+        // version number alone would have suggested.
+        SchemaIds.CAPABILITIES_TURN,
         SchemaIds.ASSISTANT_TURN,
         SchemaIds.ASSISTANT_TURN_RECEIPT,
         SchemaIds.GROUNDED_ANSWER,

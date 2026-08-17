@@ -41,6 +41,19 @@ object SchemaIds {
     // negotiates it, and the existing surfaces are untouched.
 
     const val OPERATION_RESPONSE_TURN = "knowledge-foundry-operation-response/4.0"
+
+    /**
+     * Capability discovery for the assistant surface — and NOT an envelope.
+     *
+     * `capabilities/3.0` arrives INSIDE `operation-response/3.0` and lists every operation
+     * as a bare string in an `operations` array. This is a FLAT document with no envelope
+     * at all, describing exactly ONE operation in a singular `operation` field. Decoding
+     * it with the `/3.0` path finds no `result`; decoding it by analogy to `/3.0` finds no
+     * `operations`. That is why it needed its own decoder rather than a widened one, and
+     * why the shape was read from the server's bytes rather than inferred from the name.
+     */
+    const val CAPABILITIES_TURN = "knowledge-foundry-capabilities/4.0"
+
     const val ASSISTANT_TURN = "knowledge-foundry-assistant-turn/1.0"
     const val ASSISTANT_TURN_REQUEST = "knowledge-foundry-assistant-turn-request/1.0"
     const val ASSISTANT_TURN_RECEIPT = "knowledge-foundry-assistant-turn-receipt/1.0"
@@ -95,6 +108,21 @@ object SchemaIds {
 
     /** `capabilities/3.0` pins this exactly; a different runtime is a different contract. */
     const val RUNTIME_CONTRACT = "0.3.2"
+
+    /**
+     * What `capabilities/4.0` pins, and it is deliberately NOT [RUNTIME_CONTRACT].
+     *
+     * The two versions disagree on purpose. `/3.0` is the frozen Localmind projection at
+     * `0.3.2`; `/4.0` is the additive assistant contract at `0.3.3`. So the `/3.0` decoder
+     * must keep REFUSING `0.3.3` and the `/4.0` decoder must require it — a single shared
+     * pin would make one of the two surfaces silently wrong, and the wrong one would be
+     * whichever was checked second.
+     *
+     * This resolved a real disagreement: `capabilities/3.0` reported `0.3.2` while the
+     * Stage 3D freeze document said `0.3.3`, and the client pinned `0.3.2` because that is
+     * what the live deployment returned. Both were right about different surfaces.
+     */
+    const val RUNTIME_CONTRACT_TURN = "0.3.3"
 
     const val DISPOSITION_SUCCEEDED = "succeeded"
     val DISPOSITIONS = setOf("succeeded", "failed", "abstained", "refused")

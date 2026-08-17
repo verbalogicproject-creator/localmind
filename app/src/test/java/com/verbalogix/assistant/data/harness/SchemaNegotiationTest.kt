@@ -51,6 +51,13 @@ class SchemaNegotiationTest {
                 // the other direction -- the request golden proves the ENCODER, which is
                 // the half that fails silently.
                 "knowledge-foundry-operation-response/4.0",
+                // Capability discovery, admitted last and on exactly the same rule. Its
+                // shape was READ from the server's bytes and contradicted what the version
+                // number suggested, twice: flat with no envelope, and one singular
+                // `operation` where `/3.0` carries an `operations` array. A decoder
+                // written from the description would have been wrong and its tests would
+                // have passed — which is why this id waited for a golden like the rest.
+                "knowledge-foundry-capabilities/4.0",
                 "knowledge-foundry-assistant-turn/1.0",
                 "knowledge-foundry-assistant-turn-receipt/1.0",
                 "knowledge-foundry-grounded-answer/1.0",

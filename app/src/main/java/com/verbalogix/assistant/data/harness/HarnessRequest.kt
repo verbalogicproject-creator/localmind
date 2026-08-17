@@ -267,6 +267,25 @@ object HarnessRequest {
         "Content-Type" to CONTENT_TYPE,
     )
 
+    /**
+     * Headers for assistant capability discovery: `GET /v1/capabilities` at `/4.0`.
+     *
+     * EXACTLY THREE HEADERS, and the absences are the specification rather than an
+     * oversight. The Foundry's own HTTP evidence golden records the accepted request as
+     * Host, Authorization and the negotiation header — no `Content-Type` (there is no
+     * body), no `Origin` (forbidden outright), no query string, and a zero-length body
+     * whose SHA-256 is the digest of the empty string.
+     *
+     * Separate from [turnHeaders] despite negotiating the same `/4.0`, because that route
+     * sends a body and this one must not. A shared builder would put `Content-Type` on a
+     * GET — the kind of difference an adapter may reject and no local test would notice.
+     */
+    fun capabilitiesTurnHeaders(host: String, bearer: String): Map<String, String> = mapOf(
+        "Host" to host,
+        "Authorization" to "Bearer $bearer",
+        HarnessNegotiation.HEADER to HarnessNegotiation.ACCEPT_VALUE_TURN,
+    )
+
     /** Headers for an operation on the `/3.0` path. */
     fun operationHeaders(host: String, bearer: String, post: Boolean): Map<String, String> =
         buildMap {

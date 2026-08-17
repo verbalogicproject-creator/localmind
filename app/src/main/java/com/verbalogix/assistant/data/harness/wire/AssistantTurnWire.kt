@@ -137,3 +137,36 @@ internal data class AssistantTurnReceipt(
     @SerialName("proof_limit") val proofLimit: String,
     @SerialName("receipt_sha256") val receiptSha256: String,
 )
+
+/**
+ * `knowledge-foundry-capabilities/4.0` — whether this server offers the assistant turn.
+ *
+ * FLAT, WITH NO ENVELOPE, and singular. `capabilities/3.0` arrives inside an
+ * `operation-response/3.0` and lists every operation as a bare string in `operations`;
+ * this document has no envelope and describes exactly one operation. The difference was
+ * read from the server's own bytes, not inferred from the version number, and it is the
+ * reason `/4.0` needed a separate decoder rather than a widened one.
+ *
+ * EVERY FIELD IS REQUIRED and none is nullable. The three effect flags in particular are
+ * not conveniences: `provider_execution`, `tool_execution` and `persistence` are the
+ * server stating that discovering this capability grants no authority to run a provider,
+ * call a tool, or write anything. A client that decoded them leniently — or defaulted a
+ * missing one to `false` — would be inventing the assurance rather than reading it.
+ *
+ * `capabilities_sha256` seals the rest of the document under the same canonical rules as
+ * Stage 3D, so it is verified rather than displayed. See [HarnessDecoder].
+ */
+@Serializable
+internal data class AssistantCapabilities(
+    val schema: String,
+    val operation: String,
+    @SerialName("response_schema") val responseSchema: String,
+    @SerialName("runtime_contract") val runtimeContract: String,
+    @SerialName("kpack_runtime_contract") val kpackRuntimeContract: String,
+    @SerialName("distribution_version") val distributionVersion: String,
+    @SerialName("provider_execution") val providerExecution: Boolean,
+    @SerialName("tool_execution") val toolExecution: Boolean,
+    val persistence: Boolean,
+    @SerialName("proof_limit") val proofLimit: String,
+    @SerialName("capabilities_sha256") val capabilitiesSha256: String,
+)

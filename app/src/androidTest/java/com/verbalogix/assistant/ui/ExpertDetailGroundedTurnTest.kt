@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.DpSize
 import androidx.compose.ui.unit.dp
 import com.verbalogix.assistant.ui.evidence.AnswerSegmentView
 import com.verbalogix.assistant.ui.evidence.EvidenceEntry
+import com.verbalogix.assistant.ui.evidence.GroundedDrafting
 import com.verbalogix.assistant.ui.evidence.GroundedTurnUiState
 import com.verbalogix.assistant.ui.evidence.RetrievalEvidence
 import com.verbalogix.assistant.ui.evidence.RetrievalReceipt
@@ -28,6 +29,7 @@ import com.verbalogix.assistant.ui.experts.ExpertDetailScreen
 import com.verbalogix.assistant.ui.experts.ExpertDetailUiState
 import com.verbalogix.assistant.ui.experts.ExpertLifecycle
 import com.verbalogix.assistant.ui.experts.ExpertSummary
+import com.verbalogix.assistant.ui.experts.TAG_DRAFTING_UNAVAILABLE
 import com.verbalogix.assistant.ui.experts.TAG_EXPERT_ANSWER_SUBMIT
 import com.verbalogix.assistant.ui.theme.LocalmindTheme
 import org.junit.Rule
@@ -166,6 +168,9 @@ class ExpertDetailGroundedTurnTest {
     private fun screen(
         retrieval: RetrievalUiState = RetrievalUiState.Ready(evidence()),
         turn: GroundedTurnUiState = GroundedTurnUiState.Idle,
+        // Offered by default so every existing assertion about the ACTION still exercises
+        // the action. The gate itself is tested explicitly below.
+        drafting: GroundedDrafting = GroundedDrafting.Offered,
     ) {
         compose.setContent {
             DeviceConfigurationOverride(
@@ -176,6 +181,7 @@ class ExpertDetailGroundedTurnTest {
                         state = ExpertDetailUiState.Ready(expert()),
                         retrieval = retrieval,
                         turn = turn,
+                        drafting = drafting,
                     )
                 }
             }
@@ -191,6 +197,35 @@ class ExpertDetailGroundedTurnTest {
         // imply otherwise.
         screen(retrieval = RetrievalUiState.Idle)
         compose.onAllNodesWithTag(TAG_EXPERT_ANSWER_SUBMIT).assertCountEquals(0)
+    }
+
+    /**
+     * ASKED OF THE SERVER, NEVER INFERRED FROM RETRIEVAL.
+     *
+     * The gate used to be "a retrieval succeeded", which reasons from one capability to a
+     * different one. The Foundry states that absence must hide or disable the action, so
+     * ready evidence is necessary and no longer sufficient.
+     */
+    @Test
+    fun ready_evidence_alone_does_not_offer_grounded_drafting() {
+        screen(drafting = GroundedDrafting.NotOffered("This Knowledge Foundry does not offer grounded answers."))
+        compose.onAllNodesWithTag(TAG_EXPERT_ANSWER_SUBMIT).assertCountEquals(0)
+        // Stated, not silent: an action that vanishes without explanation reads as a
+        // missing feature rather than a deployment that declined.
+        compose.onNodeWithTag(TAG_DRAFTING_UNAVAILABLE).performScrollTo().assertIsDisplayed()
+    }
+
+    /**
+     * "Not yet asked" is not "answered no", and neither offers the action.
+     *
+     * The window before discovery returns must show nothing rather than an optimistic
+     * button -- but it must also not claim the server declined, because it has not answered.
+     */
+    @Test
+    fun an_undiscovered_capability_offers_nothing_and_claims_nothing() {
+        screen(drafting = GroundedDrafting.Undiscovered)
+        compose.onAllNodesWithTag(TAG_EXPERT_ANSWER_SUBMIT).assertCountEquals(0)
+        compose.onAllNodesWithTag(TAG_DRAFTING_UNAVAILABLE).assertCountEquals(0)
     }
 
     @Test

@@ -74,4 +74,28 @@ object HarnessErrorCodes {
      */
     fun isUnknown(code: String?): Boolean =
         code != null && code !in ENDS_SESSION && code !in CLIENT_FAULT
+
+    /**
+     * Codes after which a declared capability can no longer be trusted.
+     *
+     * The Foundry states that capability presence promises the operation is offered by the
+     * CURRENT server instance or build — not forever, and not across a change of either.
+     * Token refresh within one instance does NOT invalidate it, which is why refresh is
+     * deliberately absent here: re-discovering on every refresh would be noise, and noise
+     * is how a real trigger gets ignored.
+     *
+     * `adapter-version-unsupported` and `operation-unknown` both mean the other end no
+     * longer answers for what was discovered. A server-instance change arrives instead as
+     * `token-bind-denied` or `token-instance-unknown`, which already end the session — they
+     * are listed anyway so re-discovery does not depend on someone remembering that
+     * re-pairing happens to rebuild the state.
+     */
+    private val RENEGOTIATE_AFTER = setOf(
+        "adapter-version-unsupported",
+        "operation-unknown",
+        "token-bind-denied",
+        "token-instance-unknown",
+    )
+
+    fun requiresRenegotiation(code: String?): Boolean = code in RENEGOTIATE_AFTER
 }

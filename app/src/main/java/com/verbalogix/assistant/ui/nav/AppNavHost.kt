@@ -304,6 +304,7 @@ fun AppNavHost(
                 val state by vm.state.collectAsStateWithLifecycle()
                 val retrieval by vm.retrievalState.collectAsStateWithLifecycle()
                 val turn by vm.turnState.collectAsStateWithLifecycle()
+                val drafting by vm.draftingState.collectAsStateWithLifecycle()
                 val queryText by vm.queryText.collectAsStateWithLifecycle()
 
                 ExpertDetailScreen(
@@ -311,6 +312,8 @@ fun AppNavHost(
                     onBack = { navController.popBackStack() },
                     retrieval = retrieval,
                     turn = turn,
+                    // Asked of the server, never inferred from a successful retrieval.
+                    drafting = drafting,
                     // The question is held by the view model, never by `rememberSaveable`:
                     // saved instance state is a Bundle the system may persist and that
                     // turns up in bug reports, and a question typed against a private

@@ -9,7 +9,10 @@ import com.verbalogix.assistant.data.LlamaClient
 import com.verbalogix.assistant.data.ProviderRepository
 import com.verbalogix.assistant.data.capability.CapabilityState
 import com.verbalogix.assistant.data.harness.HarnessClient
+import com.verbalogix.assistant.data.harness.HarnessErrorCodes
+import com.verbalogix.assistant.data.harness.HarnessOutcome
 import com.verbalogix.assistant.data.harness.HarnessSessionRepository
+import com.verbalogix.assistant.ui.evidence.GroundedDrafting
 import com.verbalogix.assistant.ui.evidence.GroundedTurnController
 import com.verbalogix.assistant.ui.evidence.GroundedTurnUiState
 import com.verbalogix.assistant.ui.evidence.RetrievalController
@@ -148,6 +151,11 @@ class ExpertDetailViewModel @Inject constructor(
                     else -> session.bearer()
                         ?.let { client.inspectRelease(it, id).toDetailState() }
                 }
+                // Discovery rides the same gate as the detail load, so it re-runs when a
+                // session arrives rather than only once at construction -- the screen can
+                // outlive a pairing, and a capability discovered against a dead session is
+                // not a capability.
+                discoverGroundedDrafting()
             }
         }
     }
@@ -253,10 +261,73 @@ class ExpertDetailViewModel @Inject constructor(
             val provider = providers.active()
             llama.completeTurn(provider.baseUrl, provider.model, messages)
         },
-        finalize = { request -> session.bearer()?.let { client.finalizeTurn(it, request) } },
+        finalize = { request ->
+            session.bearer()?.let { bearer ->
+                client.finalizeTurn(bearer, request).also { outcome ->
+                    // RE-DISCOVERY IS TRIGGERED WHERE THE OUTCOME IS SEEN, not on a timer
+                    // and not on every token refresh. The Foundry's promise is about the
+                    // current server instance or build, so the codes meaning "the other end
+                    // is no longer the one you discovered against" are exactly the ones
+                    // that invalidate what this screen holds.
+                    if (outcome is HarnessOutcome.Unsuccessful &&
+                        HarnessErrorCodes.requiresRenegotiation(outcome.errorCode)
+                    ) {
+                        discoverGroundedDrafting()
+                    }
+                }
+            }
+        },
     )
 
     val turnState: StateFlow<GroundedTurnUiState> = turn.state
+
+    // ── is grounded drafting offered at all? ────────────────────────────────
+
+    private val _drafting = MutableStateFlow<GroundedDrafting>(GroundedDrafting.Undiscovered)
+
+    /**
+     * Whether this server declares `assistant.turn.finalize`.
+     *
+     * ASKED, NEVER INFERRED. The previous gate offered the action whenever a retrieval had
+     * succeeded, which reasons from a related capability to this one. The Foundry has stated
+     * that the client must not: absence means hide or disable, and a withdrawn operation
+     * must not first appear as a button that fails when pressed.
+     *
+     * Starts [GroundedDrafting.Undiscovered] rather than optimistic, so the window before an
+     * answer arrives offers nothing.
+     */
+    val draftingState: StateFlow<GroundedDrafting> = _drafting.asStateFlow()
+
+    private fun discoverGroundedDrafting() {
+        viewModelScope.launch {
+            val bearer = session.bearer()
+            if (bearer == null) {
+                // No session is not a refusal by the server. Reported as undiscovered so
+                // pairing restores the action, rather than leaving a stated "not offered"
+                // that never re-evaluates.
+                _drafting.value = GroundedDrafting.Undiscovered
+                return@launch
+            }
+            _drafting.value = when (val outcome = client.assistantCapabilities(bearer)) {
+                is HarnessOutcome.Decoded -> GroundedDrafting.Offered
+
+                // The server answered and declined. The code is carried so it can be
+                // reported rather than guessed at.
+                is HarnessOutcome.Unsuccessful -> GroundedDrafting.NotOffered(
+                    "This Knowledge Foundry does not offer grounded answers" +
+                        (outcome.errorCode?.let { " ($it)" } ?: "") + ".",
+                )
+
+                // The server answered something this build will not accept -- a contract
+                // disagreement, not an absence. Withheld either way: offering an action
+                // whose reply we could not read is the failure this slice removes.
+                is HarnessOutcome.Refused -> GroundedDrafting.NotOffered(
+                    "This Knowledge Foundry declared a grounded-answer contract this build " +
+                        "does not accept, so the action is withheld.",
+                )
+            }
+        }
+    }
 
     /**
      * Draft an answer from the evidence currently on screen.
@@ -273,6 +344,10 @@ class ExpertDetailViewModel @Inject constructor(
         // an `expected_evidence` that describe different questions -- which the Foundry
         // correctly reports as drift, blaming the mounted packs for a client-side mistake.
         val question = retrieval.acceptedQuestion ?: return
+        // THE CAPABILITY IS CHECKED HERE TOO, not only where the button is drawn. The screen
+        // already withholds the action, so this is the second lock on the same door -- and
+        // it is the one that holds if a caller ever reaches this method another way.
+        if (_drafting.value != GroundedDrafting.Offered) return
         if (current is RetrievalUiState.Ready && current.evidence.items.isNotEmpty()) {
             turn.submit(question, target, current.evidence)
         }

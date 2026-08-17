@@ -156,3 +156,39 @@ data class TurnReceiptView(
     val disposition: String,
     val proofLimit: String,
 )
+
+/**
+ * Whether THIS server offers `assistant.turn.finalize`.
+ *
+ * THREE STATES, NOT A BOOLEAN, and the third is the one that matters. "Not yet asked" and
+ * "asked, and the answer was no" must not collapse: a boolean would default one of them to
+ * the other, and whichever way it defaulted would be wrong. Defaulting to false hides a
+ * working feature during discovery; defaulting to true offers an action the server has not
+ * declared — which is the inference this whole slice exists to remove.
+ *
+ * REPLACES AN INFERENCE. Grounded drafting used to be offered whenever a retrieval had
+ * succeeded — "retrieval answered, so the turn endpoint is probably there too". The Foundry
+ * has stated plainly that the client must not reason that way: absence means hide or
+ * disable, and never infer from retrieval. Under the old gate a withdrawn operation
+ * surfaced only when a user pressed the button, and it looked like the model's fault.
+ *
+ * PRESENCE IS NARROWER THAN IT SOUNDS. [Offered] promises the operation is offered by the
+ * current server instance or build. It promises nothing about an individual turn, which may
+ * still abstain, be refused, or fail validation — those remain [GroundedTurnUiState]'s job.
+ */
+sealed interface GroundedDrafting {
+
+    /** No answer yet: no session, or discovery has not returned. The action is not offered. */
+    data object Undiscovered : GroundedDrafting
+
+    /** The server declared the operation. Individual turns may still decline. */
+    data object Offered : GroundedDrafting
+
+    /**
+     * The server did not declare it, or declared something this client will not accept.
+     *
+     * @param reason shown to the user verbatim, so it is written as a sentence. A refusal
+     *   with no reason is indistinguishable from a feature that was never built.
+     */
+    data class NotOffered(val reason: String) : GroundedDrafting
+}

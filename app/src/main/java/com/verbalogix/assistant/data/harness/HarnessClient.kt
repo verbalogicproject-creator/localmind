@@ -193,6 +193,37 @@ class HarnessClient @Inject constructor() {
         decodeOperation(response) { HarnessDecoder.decodeAssistantTurn(it) }
     }.getOrElse { transportRefusal(it) }
 
+    /**
+     * Ask whether THIS server offers the assistant turn: `GET /v1/capabilities` at `/4.0`.
+     *
+     * NOT [operationGet], because that builds `/3.0` headers and this route negotiates
+     * `/4.0` with no `Content-Type` at all — there is no body. Reusing it would send the
+     * `/3.0` header to the same path and receive the `/3.0` capabilities document, which
+     * decodes cleanly and answers a different question.
+     *
+     * WHAT THIS REPLACES. The action used to be gated on a successful retrieval —
+     * "retrieval answered, so the turn endpoint is probably there too". That is an
+     * inference from a related capability rather than a declaration, and the Foundry has
+     * now stated plainly that it must not be made. Under the old gate, a server that
+     * withdrew the operation surfaced as a failure at the moment a user pressed the
+     * button, looking like the model's fault.
+     *
+     * `capabilities:read` authorises it — a scope this client already holds. Discovering a
+     * capability grants no authority, which the response itself asserts through three
+     * effect flags the decoder requires to be false.
+     */
+    internal suspend fun assistantCapabilities(
+        accessToken: String,
+        bind: String = DEFAULT_BIND,
+    ): HarnessOutcome<com.verbalogix.assistant.data.harness.wire.AssistantCapabilities> =
+        runCatching {
+            val response = http.get("http://$bind${HarnessRequest.PATH_CAPABILITIES}") {
+                HarnessRequest.capabilitiesTurnHeaders(bind, accessToken)
+                    .forEach { (k, v) -> header(k, v) }
+            }
+            decodeOperation(response) { HarnessDecoder.decodeAssistantCapabilities(it) }
+        }.getOrElse { transportRefusal(it) }
+
     private suspend fun <T> operationGet(
         path: String,
         accessToken: String,
