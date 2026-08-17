@@ -25,23 +25,43 @@ import com.verbalogix.assistant.data.ChatMessage
  */
 object GroundedTurnPrompt {
 
-    /** Localmind's own template namespace. The Foundry does not own this identity. */
-    const val TEMPLATE_ID = "localmind/grounded-turn/1.0"
+    /**
+     * Localmind's own template namespace. The Foundry does not own this identity.
+     *
+     * VERSIONED WITH THE BYTES, so `1.1` was minted the moment [SYSTEM] changed. The id and
+     * [TEMPLATE_SHA256] are recorded together in every receipt, and two different templates
+     * sharing one id would make that pair useless: a reader comparing two receipts would see
+     * the same name against different digests and have no way to tell which text produced
+     * which answer. Bumping is cheap; the id is not a Foundry-registered name and nothing
+     * validates it against a list.
+     */
+    const val TEMPLATE_ID = "localmind/grounded-turn/1.1"
 
     /**
      * The system message: rules only, never retrieved content.
      *
-     * Deliberately short. A small local model follows four concrete rules better than it
-     * follows a paragraph of policy, and every additional sentence here is context taken
-     * from the evidence itself.
+     * Deliberately short. A small local model follows a handful of concrete rules better
+     * than it follows a paragraph of policy, and every additional sentence here is context
+     * taken from the evidence itself.
+     *
+     * ONE CLAIM PER PARAGRAPH IS RULE 1 BECAUSE OF WHAT A PARAGRAPH IS HERE. A paragraph is
+     * a SEGMENT — the unit the receipt cites, the unit the screen puts a citation next to,
+     * and the unit the Foundry checks for closure. A model that answers in one block
+     * produces one segment carrying every citation at once, which is the footnote-list
+     * shape this design exists to avoid: it says these sources were involved somewhere
+     * rather than which claim rests on what. The earlier wording asked only that paragraphs
+     * be separated by a blank line, and qwen-4b honoured that literally by writing a single
+     * paragraph. So the instruction now names the thing wanted rather than its formatting,
+     * and says it first, where a small model weights it most.
      */
     const val SYSTEM = """You answer only from the numbered evidence the user provides.
 
 Rules:
-1. Every factual sentence must end with a citation like [1] or [2,3] naming the evidence it came from.
-2. Never cite a number that is not in the list.
-3. If the evidence does not answer the question, say so plainly in a paragraph with no citation.
-4. Separate paragraphs with a blank line. Do not use headings, lists, or code blocks."""
+1. Write one claim per paragraph, separated by a blank line. Never put two claims in the same paragraph.
+2. End each claim with a citation like [1] or [2,3] naming the evidence it came from.
+3. Never cite a number that is not in the list.
+4. If the evidence does not answer the question, say so plainly in a paragraph with no citation.
+5. Do not use headings, lists, or code blocks."""
 
     /** The delimiter around quoted material. Named so the model can tell where it ends. */
     private const val OPEN = "<<<EVIDENCE"

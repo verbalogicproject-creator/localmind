@@ -278,6 +278,17 @@ class ExpertDetailRetrievalTest {
         compose.onNodeWithTag(TAG_EXPERT_QUERY_SUBMIT).assertIsEnabled()
     }
 
+    @Test
+    fun the_field_is_labelled_for_what_goes_in_it_not_for_the_section_it_sits_in() {
+        // The heading and the field label were the same four words, a thumb's width apart.
+        // A label is the field's only piece of guidance and its accessible name; spending it
+        // on a repeat of the heading spends it on nothing.
+        screen()
+        compose.onNodeWithTag(TAG_EXPERT_QUERY_FIELD).performScrollTo()
+        compose.onAllNodesWithText("Search this expert").assertCountEquals(1)
+        compose.onNodeWithText("Question").assertIsDisplayed()
+    }
+
     // ── what comes back ─────────────────────────────────────────────────────
 
     @Test

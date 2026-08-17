@@ -13,6 +13,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -35,6 +36,7 @@ import com.verbalogix.assistant.ui.theme.AmberTokens
 
 const val TAG_GROUNDED_ANSWER = "grounded-answer"
 const val TAG_TURN_RECEIPT = "turn-receipt"
+const val TAG_COPY_ANSWER = "copy-answer"
 
 /**
  * An answer, shown as grounded only when a receipt says so.
@@ -99,12 +101,34 @@ fun GroundedTurnView(
  */
 @Composable
 private fun NotGroundedPanel(state: GroundedTurnUiState.NotGrounded) {
+    QuestionLine(state.question)
     EmptyNotice(
         title = "Not grounded",
         body = "Knowledge Foundry reported \"${state.disposition}\" for evidence it rated " +
             "\"${state.answerability}\", so no answer was generated from it.",
     )
     TurnReceiptPanel(state.receipt)
+}
+
+/**
+ * The question this turn was actually about.
+ *
+ * AN ANSWER OUTLIVES THE FIELD IT CAME FROM. The search box stays editable while an answer
+ * sits below it, so a user who types a follow-up and does not press the button is left
+ * reading an old answer under a new question — with nothing on screen disagreeing. The
+ * mismatch is invisible precisely because both halves are correct on their own.
+ *
+ * Shown for every turn that reached the Foundry, not only the grounded ones: "Not grounded"
+ * under the wrong question is the same trap, and reads as a verdict on a question that was
+ * never asked.
+ */
+@Composable
+private fun QuestionLine(question: String) {
+    Text(
+        "Question: “$question”",
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable
@@ -114,6 +138,7 @@ private fun GroundedPanel(state: GroundedTurnUiState.Grounded) {
         label = "Grounded answer, receipt closed by Knowledge Foundry",
         tint = MaterialTheme.colorScheme.primary,
     )
+    QuestionLine(state.question)
     if (state.answerability == "conflicted") {
         // A grounded answer over conflicting sources is still grounded, and the reader must
         // be told. Suppressing this would be the single most misleading thing this screen
@@ -134,6 +159,8 @@ private fun GroundedPanel(state: GroundedTurnUiState.Grounded) {
         }
     }
 
+    CopyAnswerAction(state)
+
     Text(
         // The model is named on screen, not only in the receipt. Which model wrote this is
         // part of reading it, and a digest in a collapsed panel is not on screen.
@@ -142,6 +169,35 @@ private fun GroundedPanel(state: GroundedTurnUiState.Grounded) {
         color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
     TurnReceiptPanel(state.receipt)
+}
+
+/**
+ * Take the answer with you — citations, receipt and all.
+ *
+ * THE ANSWER WAS THE ONE THING ON THIS SCREEN THAT COULD NOT BE COPIED, while every digest
+ * in the receipt could. That is backwards: the digests are for checking a claim, and the
+ * claim itself was trapped behind a screenshot.
+ *
+ * THE LABEL STAYS CHANGED rather than reverting on a timer. It is keyed to the receipt, so
+ * it says "copied" for exactly the answer that was copied and resets when a different turn
+ * replaces it — which is true, needs no clock, and cannot leave a stale confirmation over
+ * new text. A timed revert would also make every test that touches this screen wait for it.
+ */
+@Composable
+private fun CopyAnswerAction(state: GroundedTurnUiState.Grounded) {
+    val clipboard = LocalClipboardManager.current
+    var copied by remember(state.receipt.receiptId) { mutableStateOf(false) }
+    TextButton(
+        onClick = {
+            clipboard.setText(AnnotatedString(state.asCopyableText()))
+            copied = true
+        },
+        modifier = Modifier
+            .minimumTouchTarget()
+            .testTag(TAG_COPY_ANSWER),
+    ) {
+        Text(if (copied) "Answer copied" else "Copy answer with citations")
+    }
 }
 
 @Composable

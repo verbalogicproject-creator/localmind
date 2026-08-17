@@ -1,6 +1,7 @@
 package com.verbalogix.assistant.ui.evidence
 
 import com.verbalogix.assistant.data.LlamaClient
+import com.verbalogix.assistant.data.harness.GroundedTurnPrompt
 import com.verbalogix.assistant.data.harness.HarnessDecoder
 import com.verbalogix.assistant.data.harness.HarnessOutcome
 import com.verbalogix.assistant.data.harness.HarnessRefusal
@@ -8,6 +9,8 @@ import com.verbalogix.assistant.data.harness.wire.AssistantTurnResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -202,6 +205,28 @@ class GroundedTurnControllerTest {
     }
 
     @Test
+    fun the_submitted_observation_declares_the_template_that_was_actually_used() {
+        // The receipt's `prompt_template_sha256` is how someone later asks "what
+        // instructions produced this answer?". If this were pinned to a literal here, or
+        // built from anything other than the object that renders the prompt, an edit to the
+        // rules could ship while every receipt kept certifying the old text.
+        val submitted = mutableListOf<JsonObject>()
+        controller(submitted = submitted).submit("Knowledge", target, evidence())
+
+        val template = submitted.single()
+            .getValue("provider_observation").jsonObject
+            .getValue("prompt_template").jsonObject
+        assertEquals(
+            GroundedTurnPrompt.TEMPLATE_ID,
+            template.getValue("template_id").jsonPrimitive.content,
+        )
+        assertEquals(
+            GroundedTurnPrompt.TEMPLATE_SHA256,
+            template.getValue("template_sha256").jsonPrimitive.content,
+        )
+    }
+
+    @Test
     fun a_grounded_reply_is_presented_with_its_receipt() {
         val controller = controller()
         controller.submit("Knowledge", target, evidence())
@@ -209,6 +234,10 @@ class GroundedTurnControllerTest {
         val state = controller.state.value
         assertTrue("got $state", state is GroundedTurnUiState.Grounded)
         val grounded = state as GroundedTurnUiState.Grounded
+        // The question the turn was BUILT from, carried through to the screen. The field it
+        // was typed into stays editable while the answer sits below it, so an answer that
+        // could not name its own question would silently appear to be about a newer one.
+        assertEquals("Knowledge", grounded.question)
         assertEquals("lfm-8b", grounded.modelId)
         assertEquals("grounded", grounded.receipt.disposition)
         assertEquals(2, grounded.segments.size)

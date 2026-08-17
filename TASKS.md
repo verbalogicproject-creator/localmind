@@ -143,6 +143,34 @@ scope required no source change and the tag alone determines the released identi
 3. **No local release keystore.** `assembleRelease` here produces
    `app-release-unsigned.apk`; CI signs from repository secrets.
 
+### RC polish, applied 2026-08-17
+
+Four items, all inside the frozen scope: nothing new can be reached and no authority moved.
+
+1. **The answer is copyable**, with the citation markers restored and a provenance block
+   naming model, template, receipt id and `answer_sha256`. Every digest in the receipt was
+   copyable and the answer itself was not, which is backwards; and a pasted answer with no
+   attribution is exactly the ungrounded-looking-grounded artefact this slice exists to
+   prevent. The question is deliberately NOT copied — see `asCopyableText`.
+2. **The search field is labelled "Question"**, not "Search this expert" a second time.
+3. **The question is named above the answer**, on grounded and not-grounded turns alike. The
+   field stays editable while an answer sits below it, so an answer drafted before an edit
+   used to describe the wrong question silently.
+4. **The prompt asks for one claim per paragraph, first.** A paragraph IS a segment — the
+   unit the receipt cites — and qwen-4b answered in one block, collapsing three citations
+   into one segment and losing per-claim attribution. CONTRACT-VISIBLE: this changes
+   `template_sha256`, so `TEMPLATE_ID` was bumped to `localmind/grounded-turn/1.1` in the
+   same change and both are pinned by `GroundedTurnPromptTest`. Receipts written before this
+   name `1.0` / `49a1a629…`; after it, `1.1` / `57a73656…`. Both remain checkable.
+
+Also applied at your request, and not a scope addition: the on-device engine now looks in
+`/storage/emulated/0/models/local-mind` before its app-private folder. Two facts about that
+are STATED in `EmbeddedEngine` rather than worked around — the folder needs
+MANAGE_EXTERNAL_STORAGE to read from API 30 and this build does not request it, and the
+in-process engine is CPU-only because upstream's binding exposes no backend, offload,
+context or thread control at all. The GPU path is llama-swap on :8090, where offload is a
+llama-server launch flag on the phone, outside the APK.
+
 ### Evidence needed before tagging
 
 - One grounded turn on a physical device from a SIGNED RELEASE build — the same flow

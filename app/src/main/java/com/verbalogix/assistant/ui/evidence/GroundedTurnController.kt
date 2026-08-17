@@ -142,7 +142,7 @@ internal class GroundedTurnController(
             ?: return GroundedTurnUiState.Refused("the Knowledge Foundry session has ended.")
 
         return when (reply) {
-            is HarnessOutcome.Decoded -> present(reply.value, evidenceIds)
+            is HarnessOutcome.Decoded -> present(reply.value, evidenceIds, question)
 
             // The operation failed: drift, citation closure, a digest that did not match.
             // Never softened into "the model could not answer" -- the model may have
@@ -156,10 +156,20 @@ internal class GroundedTurnController(
         }
     }
 
-    private fun present(turn: AssistantTurnResult, evidenceIds: List<String>): GroundedTurnUiState {
+    /**
+     * @param question the one this turn was submitted for, carried through so the screen can
+     *   name it. It is the question the request was built from and the Foundry re-ran, not
+     *   whatever the field says by the time the reply lands.
+     */
+    private fun present(
+        turn: AssistantTurnResult,
+        evidenceIds: List<String>,
+        question: String,
+    ): GroundedTurnUiState {
         val receipt = turn.receipt.toView(turn.turnId)
         if (turn.disposition != SchemaIds.TURN_GROUNDED) {
             return GroundedTurnUiState.NotGrounded(
+                question = question,
                 disposition = turn.disposition,
                 answerability = turn.evidence.answerability,
                 receipt = receipt,
@@ -171,6 +181,7 @@ internal class GroundedTurnController(
             "the Foundry called this grounded but carried no answer",
         )
         return GroundedTurnUiState.Grounded(
+            question = question,
             segments = answer.segments.map { segment ->
                 AnswerSegmentView(
                     kind = segment.kind,

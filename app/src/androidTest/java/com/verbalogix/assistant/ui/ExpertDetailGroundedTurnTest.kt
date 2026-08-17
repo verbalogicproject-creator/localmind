@@ -20,6 +20,7 @@ import com.verbalogix.assistant.ui.evidence.RetrievalEvidence
 import com.verbalogix.assistant.ui.evidence.RetrievalReceipt
 import com.verbalogix.assistant.ui.evidence.RetrievalUiState
 import com.verbalogix.assistant.ui.evidence.SourceRef
+import com.verbalogix.assistant.ui.evidence.TAG_COPY_ANSWER
 import com.verbalogix.assistant.ui.evidence.TAG_TURN_RECEIPT
 import com.verbalogix.assistant.ui.evidence.TurnReceiptView
 import com.verbalogix.assistant.ui.experts.ExpertDetail
@@ -151,12 +152,13 @@ class ExpertDetailGroundedTurnTest {
      * could not tell which one it was looking at.
      */
     private fun grounded(answerability: String = "supported") = GroundedTurnUiState.Grounded(
+        question = "how is a pack verified",
         segments = listOf(
             AnswerSegmentView("claim", "Every pack carries a checkable signature.", listOf(1)),
             AnswerSegmentView("uncertainty", "The evidence does not say when.", emptyList()),
         ),
         modelId = "lfm-8b",
-        templateId = "localmind/grounded-turn/1.0",
+        templateId = "localmind/grounded-turn/1.1",
         answerability = answerability,
         receipt = receipt("grounded", withProvider = true),
     )
@@ -224,6 +226,34 @@ class ExpertDetailGroundedTurnTest {
             .performScrollTo().assertIsDisplayed()
     }
 
+    /**
+     * An answer outlives the field it was asked from.
+     *
+     * The search box stays editable while an answer sits below it, so a user who types a
+     * follow-up and does not press the button reads an old answer under a new question, with
+     * nothing on screen disagreeing. Both halves are individually correct, which is exactly
+     * why the mismatch is invisible.
+     */
+    @Test
+    fun a_grounded_answer_names_the_question_it_was_drafted_for() {
+        screen(turn = grounded())
+        compose.onNodeWithText("Question: “how is a pack verified”")
+            .performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun the_answer_can_be_taken_away_with_its_citations() {
+        // The digests in the receipt were copyable and the answer itself was not, which is
+        // backwards: the digests exist to check a claim, and the claim was behind a
+        // screenshot.
+        screen(turn = grounded())
+        compose.onNodeWithText("Copy answer with citations").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag(TAG_COPY_ANSWER).performClick()
+        // Keyed to the receipt rather than a timer, so it confirms this answer and cannot
+        // leave a stale message over a later one.
+        compose.onNodeWithText("Answer copied").assertIsDisplayed()
+    }
+
     @Test
     fun the_receipt_is_behind_disclosure_and_states_what_it_does_not_prove() {
         screen(turn = grounded())
@@ -265,13 +295,20 @@ class ExpertDetailGroundedTurnTest {
     fun an_abstained_turn_is_not_an_answer_and_keeps_its_receipt() {
         screen(
             turn = GroundedTurnUiState.NotGrounded(
+                question = "how is a pack verified",
                 disposition = "abstained",
                 answerability = "insufficient",
                 receipt = receipt("abstained", withProvider = false),
             ),
         )
+        // The question is named here too: "Not grounded" under the wrong question reads as a
+        // verdict on one that was never asked.
+        compose.onNodeWithText("Question: “how is a pack verified”")
+            .performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("Not grounded").performScrollTo().assertIsDisplayed()
         compose.onNodeWithText("abstained", substring = true).performScrollTo().assertIsDisplayed()
+        // Nothing to copy, because nothing was written.
+        compose.onAllNodesWithTag(TAG_COPY_ANSWER).assertCountEquals(0)
         assertNoGroundedClaim()
 
         // The receipt is still real: it certifies that retrieval happened and that nothing

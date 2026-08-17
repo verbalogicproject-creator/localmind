@@ -48,6 +48,7 @@ sealed interface GroundedTurnUiState {
      * that nothing was grounded on it.
      */
     data class NotGrounded(
+        val question: String,
         val disposition: String,
         val answerability: String,
         val receipt: TurnReceiptView,
@@ -63,14 +64,57 @@ sealed interface GroundedTurnUiState {
      * the joined text alone would show exactly the same words with no way to tell which
      * sentence rests on which source — which is the difference between an answer that is
      * grounded and one that says it is.
+     *
+     * [question] is carried so the screen can name it. An answer outlives the field it was
+     * asked from: edit the box after drafting and the words above the answer describe a
+     * question it was never about, silently. See [asCopyableText] for the same reasoning
+     * applied to text that leaves the app entirely.
      */
     data class Grounded(
+        val question: String,
         val segments: List<AnswerSegmentView>,
         val modelId: String,
         val templateId: String,
         val answerability: String,
         val receipt: TurnReceiptView,
     ) : GroundedTurnUiState
+}
+
+/**
+ * The answer as text a person can keep, with its citations and enough to check it.
+ *
+ * CITATION MARKERS ARE PUT BACK. The parser strips `[1]` from the model's prose because the
+ * citation belongs in `evidence_ids` rather than in a sentence, and the screen puts it back
+ * as its own line under each segment. Copying only the prose would produce the exact artefact
+ * this slice exists to prevent: a confident, well-formed, entirely uncited answer, indexed
+ * and forwarded and no longer attached to anything that grounds it. The marker is the
+ * cheapest form of attribution that survives a paste into a plain-text note.
+ *
+ * THE PROVENANCE BLOCK IS NOT DECORATION. Model, template and receipt id are what let someone
+ * who was not here go back to the Foundry and ask whether this answer was really closed over
+ * that evidence. Without them a pasted answer is an assertion.
+ *
+ * THE QUESTION IS DELIBERATELY ABSENT. Copying is a user's act on the answer, not on their
+ * own query text, and the query is held in memory only for exactly as long as the evidence it
+ * produced is on screen. The receipt already binds it through `request_sha256`, so nothing
+ * checkable is lost by leaving it out — and the clipboard is read by every app on the device.
+ */
+fun GroundedTurnUiState.Grounded.asCopyableText(): String {
+    val body = segments.joinToString("\n\n") { segment ->
+        if (segment.citations.isEmpty()) {
+            segment.text
+        } else {
+            "${segment.text} [${segment.citations.joinToString(",")}]"
+        }
+    }
+    val provenance = buildList {
+        add("Grounded by Knowledge Foundry · model $modelId · template $templateId")
+        add("Receipt ${receipt.receiptId}")
+        // Null cannot occur on a grounded turn -- the decoder refuses one without it -- so
+        // this omits a line rather than printing a placeholder that would read as a value.
+        receipt.answerSha256?.let { add("Answer SHA-256 $it") }
+    }
+    return body + "\n\n" + provenance.joinToString("\n")
 }
 
 /**

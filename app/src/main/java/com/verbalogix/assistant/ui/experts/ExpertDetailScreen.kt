@@ -338,7 +338,10 @@ private fun SearchThisExpert(
         OutlinedTextField(
             value = queryText,
             onValueChange = onQueryChange,
-            label = { Text("Search this expert") },
+            // NOT the section's own title again. The heading names the act; the label names
+            // what goes in the box, and printing one word twice a thumb's width apart spends
+            // the field's only piece of guidance saying nothing.
+            label = { Text("Question") },
             singleLine = true,
             // Search, not Send or Go. The keyboard's own action is a submission the user
             // performed deliberately, so it counts as explicit -- unlike a text change.
