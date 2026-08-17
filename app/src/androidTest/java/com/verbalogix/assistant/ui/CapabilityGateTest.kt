@@ -152,7 +152,7 @@ class CapabilityGateTest {
      */
     @Test
     fun approve_stays_disabled_without_a_decision_sink() {
-        val proposal = com.verbalogix.assistant.debug.fakeToolProposal()
+        val proposal = exampleToolProposal()
         var fired = 0
         compose.setContent {
             LocalmindTheme(darkTheme = true) {
@@ -172,7 +172,7 @@ class CapabilityGateTest {
     fun a_decision_is_reported_and_never_executed() {
         // With a sink supplied the button becomes usable and hands back DATA. There is
         // no execution path in the component at all -- no intent, no shell, no request.
-        val proposal = com.verbalogix.assistant.debug.fakeToolProposal()
+        val proposal = exampleToolProposal()
         val decisions = mutableListOf<ToolDecision>()
         compose.setContent {
             LocalmindTheme(darkTheme = true) {

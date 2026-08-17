@@ -215,6 +215,17 @@ android {
     //
     // NOT covered: arbitrary behavioural testing of the release variant. Saying so
     // is the point; a documented gap is safer than a rung that reports success.
+    //
+    // THE ESCAPE HATCH BELOW IS OPT-IN AND OFF BY DEFAULT. The hang above was seen on
+    // EMULATORS only, and an emulator is exactly the machine an instrumentation hang is
+    // most likely to be ABOUT -- so the hypothesis that it is a device-independent fault
+    // was never actually tested. `-PinstrumentRelease` points the suite at the minified
+    // variant so that hypothesis can be checked on real hardware, and changes nothing
+    // about what CI or anyone else gets without the flag.
+    //
+    // It needs release signing configured (SIGNING_KEYSTORE_PATH and friends), because
+    // an unsigned APK cannot be installed.
+    testBuildType = if (project.hasProperty("instrumentRelease")) "release" else "debug"
 
     signingConfigs {
         if (hasReleaseSigning) {
