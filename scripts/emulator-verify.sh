@@ -8,6 +8,21 @@
 # to catch -- R8 stripping a kotlinx.serialization serializer -- is invisible in
 # every debug build and in every JVM unit test.
 #
+# THE SIX STEPS ARE ORDERED BY WHAT THEY CAN PROVE, cheapest claim first:
+#
+#   1  the signing key decodes            -- nothing else can run without it
+#   2  the app works                      -- debug, unminified, fast
+#   3  R8 did not break the app's code    -- minified, assertions, the new rung
+#   4  the shipping APK builds            -- real keep rules, no test concessions
+#   5  the shipping APK launches          -- the artifact users install
+#   6  it installs over the last release  -- the failure with no recovery path
+#
+# Step 3 was added after the minified suite was run by hand on a physical device and
+# immediately found four classes R8 had removed, plus one -- MemoryStore -- that it
+# removed CORRECTLY because no app code reaches it. That last kind of finding is why
+# this belongs in CI: a test suite covering code that does not ship looks identical
+# to one covering code that does, until something minifies it.
+#
 set -uo pipefail
 
 PKG=com.verbalogix.assistant
@@ -37,17 +52,61 @@ echo
 echo "=============================================================="
 echo " 2. instrumented tests (debug variant)"
 echo "=============================================================="
-# Debug on purpose. connectedReleaseAndroidTest was tried and hangs indefinitely
-# with no output (run 31875004036, both API levels, 45-minute timeout), so these
-# tests cover Hilt graph construction, Room migration and the Compose tree -- and
-# explicitly do NOT cover minification. R8 is covered by the mapping.txt assertion
-# in ci.yml and by the release launch smoke in step 4 below.
+# Debug on purpose: this is the functional rung -- Hilt graph construction, Room
+# migration, the Compose tree -- and it is fast because nothing is minified.
+#
+# THE NOTE THAT USED TO BE HERE WAS WRONG, and correcting it matters more than
+# deleting it. It said connectedReleaseAndroidTest "hangs indefinitely with no
+# output (run 31875004036, both API levels, 45-minute timeout)". It never hung.
+# AndroidJUnitRunner.onCreate died on a NoClassDefFoundError for androidx.tracing.
+# Trace -- R8 correctly deleting a class the app never calls but the runner does --
+# and the process was gone before it could print "Starting N tests". No output plus
+# no exit is indistinguishable from a hang, and reading it as one is why this project
+# believed for months that minification could not be tested at all. Step 3 runs it.
 ./gradlew connectedDebugAndroidTest --stacktrace 2>&1 | tee "$OUT/instrumented.log" \
   || fail "instrumented tests failed"
 
 echo
 echo "=============================================================="
-echo " 3. the artifact users actually install"
+echo " 3. instrumented tests against the MINIFIED build"
+echo "=============================================================="
+# THE RUNG THAT WAS MISSING. Every other check in this file proves the release APK
+# compiles, installs and survives six seconds. None of them runs a single assertion
+# against minified code, so R8 could rename a serializer, drop a reflective lookup or
+# finalize a class the app depends on and the first report would come from a user.
+#
+# `-PinstrumentRelease` switches testBuildType to release and adds
+# proguard-instrument-release.pro. Read that file before adding to it: every rule in
+# it widens the gap between this APK and the shipped one, and the value of this step
+# is exactly the narrowness of that gap.
+#
+# WHAT A GREEN RUN HERE MEANS, precisely: R8 did not break Localmind's own code. It
+# does NOT mean the shipped APK is verified -- the keep file holds the Kotlin runtime
+# and the AndroidX UI libraries whole so the harness can resolve against them. Step 5
+# is what speaks about the artifact users install.
+#
+# Requires signing: the release variant must be installable to be instrumented at all.
+if [ -z "${SIGNING_KEY_BASE64:-}" ]; then
+  echo "SKIP: no signing secrets, so the release variant cannot be installed."
+  echo "      This is a capability gap in the run, not a passing check."
+elif timeout 1500 ./gradlew connectedReleaseAndroidTest -PinstrumentRelease --stacktrace \
+       2>&1 | tee "$OUT/instrumented-minified.log"; then
+  echo "minified instrumented suite passed"
+else
+  rc=$?
+  # 124 is timeout(1)'s signal that it killed the command. Distinguished from a test
+  # failure because the remedies share nothing: a real hang is an infrastructure
+  # problem, a red suite is a code or keep-rule problem.
+  if [ "$rc" -eq 124 ]; then
+    fail "minified instrumented suite exceeded 25 minutes and was killed"
+  else
+    fail "minified instrumented suite failed -- R8 broke something the tests caught"
+  fi
+fi
+
+echo
+echo "=============================================================="
+echo " 4. the artifact users actually install"
 echo "=============================================================="
 ./gradlew assembleRelease --stacktrace 2>&1 | tee "$OUT/release-build.log" \
   || fail "release build failed"
@@ -63,10 +122,11 @@ fi
 
 echo
 echo "=============================================================="
-echo " 4. install and launch the RELEASE build"
+echo " 5. install and launch the RELEASE build"
 echo "=============================================================="
-# connectedReleaseAndroidTest already installed a build; remove it so this is a
-# clean install rather than an implicit upgrade.
+# Steps 2 and 3 both installed builds -- and step 3's carried the instrumentation
+# keep rules, so it is NOT this artifact. Remove it, or the launch smoke silently
+# tests an APK nobody ships.
 adb uninstall "$PKG" >/dev/null 2>&1 || true
 adb install -r "$APK" 2>&1 | tee "$OUT/install.log" || fail "release APK would not install"
 adb logcat -c
@@ -99,7 +159,7 @@ fi
 
 echo
 echo "=============================================================="
-echo " 5. upgrade continuity -- does this install OVER the last release?"
+echo " 6. upgrade continuity -- does this install OVER the last release?"
 echo "=============================================================="
 # The failure with no recovery path. If the signing key changes, no installed device
 # will ever accept an update: Android rejects it with

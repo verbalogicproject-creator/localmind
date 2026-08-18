@@ -44,3 +44,62 @@
 -keep class kotlinx.coroutines.** { *; }
 -dontwarn kotlin.**
 -dontwarn kotlinx.**
+
+# ---------------------------------------------------------------------------------------
+# Found by the first run of this suite that reached the reporting stage. Every entry below
+# was a class the TEST APK names and the APP APK no longer contains, and each one killed a
+# whole test class before a single test in it ran -- 110 of 135 tests were never even
+# enumerated, which reads as "25 tests" rather than as an error.
+#
+# JUnit resolves a test class's method SIGNATURES by reflection before running anything,
+# so a missing parameter type fails the class, not the test. That is why the symptom is
+# `initializationError` and never names the test that would have caught it.
+
+# WHY THESE ARE PACKAGES AND NOT CLASSES. The first attempt named the three classes the
+# run actually failed on -- Composer, FrameworkSQLiteOpenHelperFactory, NavHostController.
+# The next run got further and died on four more: InfiniteAnimationPolicy,
+# SupportSQLiteOpenHelper$Factory, NavArgumentBuilder, ToolProposal. That is not a list
+# converging, it is a list being enumerated one round of eight minutes at a time, because
+# the test harness reaches into these libraries in ways the app never does and nothing
+# declares which parts up front.
+#
+# So the boundary is drawn at the library, not the class. Everything the Compose test rule,
+# the Room migration harness and the navigation test controller resolve against is kept
+# whole. That is a real widening of the gap between this APK and the shipped one, and it
+# should be read together with the note above about the Kotlin runtime: what remains
+# verified here is R8's treatment of LOCALMIND'S OWN classes, which is where a minification
+# bug would actually reach a user. What is not verified is anything that depends on these
+# libraries themselves being shrunk.
+-keep class androidx.compose.** { *; }
+-keep class androidx.sqlite.** { *; }
+-keep class androidx.navigation.** { *; }
+-keep class androidx.lifecycle.** { *; }
+-keep class androidx.activity.** { *; }
+-dontwarn androidx.compose.**
+
+# TestNavHostController subclasses NavHostController, and the failure there is verification
+# rather than class loading -- worth naming because it looks like a different problem:
+#
+#   java.lang.VerifyError: Superclass z3.z of androidx.navigation.testing.
+#   TestNavHostController is declared final
+#
+# With no subclass inside the app, R8 marks the superclass final. Correct for the shipped
+# APK; fatal for a test APK that extends it. The package keep above covers it.
+
+# ToolProposal is Localmind's own, and unlike MemoryStore below it IS wired in --
+# AppNavHost routes through NoToolProposalSource and ToolApprovalSheet takes one. What R8
+# removed is the data class itself, because its constructor is `internal` and, as its own
+# doc states, no production code can construct one. Previews and tests are the only
+# callers by design. R8 is right; the tests still need the type to exist.
+-keep class com.verbalogix.assistant.ui.tools.** { *; }
+
+# THIS ONE IS NOT LIKE THE OTHERS, and it should not be quietly normalised by sitting in
+# the same list. MemoryStore is Localmind's OWN code, and R8 deleted it because NOTHING IN
+# THE APP CALLS IT: `data/memory/` (MemoryStore, Episode, Fact, DocPointer) is referenced
+# from no other file in app/src/main. The 4 instrumented tests over it are the only callers
+# that exist, so on the release variant they test code that does not ship.
+#
+# Keeping it here buys a green suite and buys nothing else. The real choice -- wire the
+# memory store into the app, or delete it and its tests -- is a product decision, not a
+# minification one, and it is deliberately left visible rather than resolved by a rule.
+-keep class com.verbalogix.assistant.data.memory.** { *; }

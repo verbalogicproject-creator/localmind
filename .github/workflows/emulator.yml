@@ -15,9 +15,13 @@ name: emulator
 on:
   # TAGS AND SCHEDULE ONLY -- deliberately NOT every push to main.
   #
-  # Measured: this rung averages 531s against ci.yml's 184s. Running it on every
-  # commit means waiting ~9 minutes to learn you are clean, and the inner loop stops
-  # being used when it costs that much.
+  # Measured over 130 runs: this rung averaged 531s against ci.yml's 184s. Running it
+  # on every commit means waiting ~9 minutes to learn you are clean, and the inner loop
+  # stops being used when it costs that much.
+  #
+  # That 531s figure PREDATES the minified suite added as step 3 and is now a floor,
+  # not an average -- the second suite pays for its own R8 pass over two APKs. Left
+  # here as the measurement it was, to be re-measured rather than guessed at.
   #
   # Quality is not reduced by this, and the reason is precise: NOTHING SHIPS WITHOUT
   # A TAG, and tags run the full ladder. The gate belongs on what ships, not on every
@@ -44,7 +48,12 @@ env:
 jobs:
   instrumented:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 45 was sized for one instrumented suite. The job now runs two -- the debug one
+    # and the minified one -- and the second pays for a full R8 pass over both the app
+    # and the androidTest APK before a single test runs. The inner `timeout 1500` in
+    # emulator-verify.sh is the real guard; this is the outer backstop, and it has to
+    # stay comfortably above the sum or a slow-but-healthy run reads as a hang.
+    timeout-minutes: 75
 
     strategy:
       # One API level failing should not hide the other's result.
