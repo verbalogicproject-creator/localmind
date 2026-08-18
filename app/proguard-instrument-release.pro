@@ -72,6 +72,10 @@
 # libraries themselves being shrunk.
 -keep class androidx.compose.** { *; }
 -keep class androidx.sqlite.** { *; }
+# androidx.room.util.KClassUtil, specifically: MigrationTestHelper reaches for it and the
+# app's own generated Room code does not, so R8 deletes it. Missed in the first pass
+# because sqlite and room look like one dependency from the outside and are two.
+-keep class androidx.room.** { *; }
 -keep class androidx.navigation.** { *; }
 -keep class androidx.lifecycle.** { *; }
 -keep class androidx.activity.** { *; }
