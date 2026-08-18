@@ -363,3 +363,101 @@ binding exposes `loadModel(path)` and `sendUserPrompt(text)` and nothing else �
 offload, context or thread control. The GPU path is llama-swap on `:8090`, where OpenCL
 offload is a `llama-server` launch flag on the phone, outside the APK. Serving models from
 that folder with `-ngl 99` is a llama-swap config edit, not an app change.
+
+---
+
+# Addendum — 2026-08-18: the minified suite actually ran
+
+Section 4 ended with the R8 instrumented suite still unproven. It has now been run, three
+times, on a physical device. **This section is the part worth mining for the Kotlin
+specialist**, because the mechanism generalises to every Android project and the symptom
+never names the cause.
+
+## 10. R8 × androidTest: the class-resolution model
+
+**The rule.** `AndroidJUnitRunner` runs INSIDE the app's process. The test APK does not
+bundle its own copy of the Kotlin runtime or the AndroidX libraries — it resolves them
+against the **app** APK. So every class the *test harness* touches that the *app* never
+calls is, from R8's point of view, unreachable and correctly deleted.
+
+**The symptom hides the cause twice over.**
+
+1. JUnit resolves a test class's method *signatures* by reflection before running anything,
+   so a missing parameter type fails the **class**, not the test. You get
+   `initializationError`, which names nothing.
+2. The tests in that class are then never enumerated. Round 1 reported `Tests run: 25` for a
+   135-test suite. **110 tests silently did not exist.** A count is not a pass, and a suite
+   that shrinks looks identical to a suite that is fast.
+
+### What three rounds actually found
+
+| Round | Ran | Failed | Newly missing classes |
+|---|---|---|---|
+| 1 | 25 | 20 | `compose.runtime.Composer`, `sqlite.db.framework.FrameworkSQLiteOpenHelperFactory`, `MemoryStore`; + `VerifyError`: R8 finalized `NavHostController`, which `TestNavHostController` extends |
+| 2 | most | 61 | `compose.ui.platform.InfiniteAnimationPolicy`, `sqlite.db.SupportSQLiteOpenHelper$Factory`, `navigation.NavArgumentBuilder`, `ui.tools.ToolProposal` |
+| 3 | — | — | boundary moved from class to library; handed to CI |
+
+**Naming individual classes does not converge.** Round 2 was not a shorter list than round 1,
+it was a different one, bought for eight minutes of R8 rebuild. The harness reaches into
+these libraries in ways nothing declares up front. Draw the keep boundary at the **library**
+(`androidx.compose.**`, `androidx.sqlite.**`, `androidx.navigation.**`, `androidx.lifecycle.**`,
+`androidx.activity.**`) and accept the stated loss of fidelity, or expect to enumerate.
+
+### Two failure modes that look unrelated and are not
+
+- `ClassNotFoundException` — R8 **removed** the class. Test APK names it, app APK lacks it.
+- `VerifyError: Superclass z3.z of X is declared final` — R8 **finalized** the class, correctly,
+  because nothing in the app subclasses it. Only the test APK does. A `-keep` on the superclass
+  fixes it; a `-keep` on the subclass does not.
+
+### The finding that justifies the whole rung
+
+`MemoryStore` was deleted by R8 **correctly**. `app/src/main/java/.../data/memory/`
+(`MemoryStore`, `Episode`, `Fact`, `DocPointer`) is referenced from no other file in
+`app/src/main`. Four instrumented tests covered it; on debug they pass, because debug keeps
+everything.
+
+**Four passing tests over code that does not ship.** That is invisible to every unit test,
+every lint rule, and every debug instrumentation run. Minification is what made it visible.
+For the specialist: *a green instrumented suite on a debug build says nothing about whether
+the code under test is reachable in the shipped artifact.*
+
+Left as a keep rule with the decision stated rather than resolved — wiring it in or deleting
+it with its tests is a product call, not a minification one.
+
+### The correction that matters most
+
+`scripts/emulator-verify.sh` carried, for months, the note that `connectedReleaseAndroidTest`
+*"hangs indefinitely with no output (run 31875004036, both API levels, 45-minute timeout)"*.
+
+**It never hung.** `AndroidJUnitRunner.onCreate` died on a `NoClassDefFoundError` for
+`androidx.tracing.Trace` — R8 deleting a class the app never calls but the runner does — and
+the process was gone before it could print `Starting N tests`. No output plus no exit is
+indistinguishable from a hang, and reading it as one is why this project believed minification
+could not be tested at all. **A crash before the first line of output is the single most
+misdiagnosed failure in Android instrumentation.**
+
+## 11. Where the rung now lives
+
+`scripts/emulator-verify.sh` step 3, gated on signing secrets, wrapped in `timeout 1500`,
+with `124` distinguished from a test failure because the remedies share nothing. Six steps
+now, ordered by what they can prove: signing → app works (debug) → R8 didn't break it
+(minified) → shipping APK builds → it launches → it upgrades.
+
+Commit `bf0fb6b`. `emulator.yml` timeout raised 45 → 75 minutes; the 531s/130-run average in
+its header now describes a floor, not an average, and is labelled as such.
+
+**Read a green step 3 as "R8 did not break Localmind's own code."** Not as "the shipped APK
+is verified" — the keep file holds the Kotlin runtime and the AndroidX UI libraries whole so
+the harness can resolve against them. Steps 4–6 are what speak for the artifact users install.
+
+## 12. Still open
+
+- **The live grounded turn on a physical device.** Both servers were confirmed up on
+  2026-08-18 (`8090` llama-swap fronting `llama-server --device GPUOpenCL -ngl 99`; `8091`
+  Foundry answering `401` on `/v1/capabilities`). The discovery leg added in `1ff5336` has
+  still never run against the live server.
+- **The answer receipt opened once by a human.** Only ever asserted in tests.
+- Device access remains the bottleneck: Wireless debugging rotated its port five times in one
+  session and refused between each. `adb tcpip 5555` after any successful connect is the
+  mitigation; moving the R8 rung to CI removed the only task that strictly required adb.
