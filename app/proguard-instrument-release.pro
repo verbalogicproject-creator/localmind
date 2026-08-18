@@ -41,7 +41,12 @@
 -dontwarn androidx.tracing.**
 
 -keep class kotlin.** { *; }
--keep class kotlinx.coroutines.** { *; }
+# kotlinx.** rather than kotlinx.coroutines.**, to match the -dontwarn below it. The keep
+# list being narrower than the warn suppression was an inconsistency, not a decision:
+# MigrationTest parses the exported Room schema with kotlinx.serialization.json, and the
+# app -- which serializes through generated serializers, never through JsonKt's top-level
+# helpers -- gives R8 no reason to keep them.
+-keep class kotlinx.** { *; }
 -dontwarn kotlin.**
 -dontwarn kotlinx.**
 
